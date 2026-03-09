@@ -38,6 +38,8 @@ export class UnifiClient {
   private username: string;
   private password: string;
   private authCookie: UnifiCookie | null = null;
+  private isUnifiOs: boolean | null = null;
+  private csrfToken: string | null = null;
 
   constructor(url: string, username: string, password: string) {
     this.baseUrl = url.replace(/\/+$/, "");
@@ -45,8 +47,12 @@ export class UnifiClient {
     this.password = password;
   }
 
+  private apiPrefix(): string {
+    return this.isUnifiOs ? "/proxy/network" : "";
+  }
+
   private async request(path: string, method: string = "GET", body?: any): Promise<any> {
-    const url = `${this.baseUrl}${path}`;
+    const url = `${this.baseUrl}${this.apiPrefix()}${path}`;
     const headers: Record<string, string> = { "Content-Type": "application/json" };
 
     if (this.authCookie && Date.now() < this.authCookie.expires) {
@@ -56,6 +62,10 @@ export class UnifiClient {
       if (this.authCookie) {
         headers["Cookie"] = this.authCookie.value;
       }
+    }
+
+    if (this.csrfToken) {
+      headers["X-CSRF-Token"] = this.csrfToken;
     }
 
     const options: RequestInit = { method, headers };
@@ -69,6 +79,9 @@ export class UnifiClient {
       if (this.authCookie) {
         headers["Cookie"] = this.authCookie.value;
       }
+      if (this.csrfToken) {
+        headers["X-CSRF-Token"] = this.csrfToken;
+      }
       const retryResponse = await proxyFetch(url, { ...options, headers });
       if (!retryResponse.ok) {
         throw new Error(`UniFi API error: ${retryResponse.status} ${retryResponse.statusText}`);
@@ -81,61 +94,87 @@ export class UnifiClient {
       this.authCookie = { value: setCookie.split(";")[0], expires: Date.now() + 1800000 };
     }
 
+    const csrf = response.headers.get("x-csrf-token");
+    if (csrf) {
+      this.csrfToken = csrf;
+    }
+
     if (!response.ok) {
       throw new Error(`UniFi API error: ${response.status} ${response.statusText}`);
     }
 
-    const data = await response.json();
-    if (data.meta?.rc && data.meta.rc !== "ok") {
-      throw new Error(`UniFi error: ${data.meta.msg || "Unknown error"}`);
+    const text = await response.text();
+    if (!text) return {};
+    try {
+      const data = JSON.parse(text);
+      if (data.meta?.rc && data.meta.rc !== "ok") {
+        throw new Error(`UniFi error: ${data.meta.msg || "Unknown error"}`);
+      }
+      return data;
+    } catch (e: any) {
+      if (e.message?.startsWith("UniFi error:")) throw e;
+      return {};
     }
-    return data;
   }
 
   async login(): Promise<boolean> {
-    try {
-      const response = await proxyFetch(`${this.baseUrl}/api/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: this.username, password: this.password }),
-      });
+    const loginEndpoints = [
+      { path: "/api/auth/login", unifiOs: true },
+      { path: "/api/login", unifiOs: false },
+    ];
 
-      if (!response.ok) {
-        console.error(`[unifi] Login HTTP error: ${response.status} ${response.statusText}`);
-        return false;
-      }
-
-      const setCookie = response.headers.get("set-cookie");
-      if (setCookie) {
-        this.authCookie = { value: setCookie.split(";")[0], expires: Date.now() + 1800000 };
-      }
-
-      const text = await response.text();
-      if (!text) {
-        console.error("[unifi] Login returned empty response body");
-        return false;
-      }
+    for (const endpoint of loginEndpoints) {
       try {
-        const data = JSON.parse(text);
-        return data.meta?.rc === "ok";
-      } catch {
-        console.error(`[unifi] Login returned non-JSON response: ${text.substring(0, 200)}`);
-        return false;
+        console.log(`[unifi] Trying login at ${this.baseUrl}${endpoint.path}`);
+        const response = await proxyFetch(`${this.baseUrl}${endpoint.path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: this.username, password: this.password }),
+        });
+
+        const text = await response.text();
+
+        if (response.status === 404) {
+          continue;
+        }
+
+        if (!response.ok) {
+          const detail = text ? ` - ${text.substring(0, 200)}` : "";
+          console.error(`[unifi] Login failed at ${endpoint.path}: ${response.status}${detail}`);
+          continue;
+        }
+
+        const setCookie = response.headers.get("set-cookie");
+        if (setCookie) {
+          this.authCookie = { value: setCookie.split(";")[0], expires: Date.now() + 1800000 };
+        }
+
+        const csrf = response.headers.get("x-csrf-token");
+        if (csrf) {
+          this.csrfToken = csrf;
+        }
+
+        this.isUnifiOs = endpoint.unifiOs;
+        console.log(`[unifi] Logged in via ${endpoint.path} (UniFi OS: ${this.isUnifiOs})`);
+        return true;
+      } catch (error: any) {
+        console.error(`[unifi] Login error at ${endpoint.path}: ${error.message}`);
+        continue;
       }
-    } catch (error: any) {
-      console.error(`[unifi] Login error: ${error.message}`);
-      return false;
     }
+
+    console.error("[unifi] All login endpoints failed");
+    return false;
   }
 
   async testConnection(): Promise<{ success: boolean; message: string; sites?: any[] }> {
     try {
       const loggedIn = await this.login();
       if (!loggedIn) {
-        return { success: false, message: "Failed to authenticate with UniFi controller" };
+        return { success: false, message: "Failed to authenticate with UniFi controller. Check username/password." };
       }
       const sites = await this.getSites();
-      return { success: true, message: `Connected. Found ${sites.length} site(s).`, sites };
+      return { success: true, message: `Connected (${this.isUnifiOs ? "UniFi OS" : "Classic"}). Found ${sites.length} site(s).`, sites };
     } catch (error: any) {
       return { success: false, message: `Connection failed: ${error.message}` };
     }

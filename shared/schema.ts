@@ -43,6 +43,7 @@ export const users = pgTable("users", {
   unitId: varchar("unit_id"),
   displayName: text("display_name"),
   avatarUrl: text("avatar_url"),
+  tosAcceptedAt: timestamp("tos_accepted_at"),
 });
 
 export const communities = pgTable("communities", {
@@ -179,6 +180,7 @@ export const registerSchema = z.object({
   email: z.string().email("Valid email is required"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   displayName: z.string().min(1, "Display name is required"),
+  tosAccepted: z.literal(true, { errorMap: () => ({ message: "You must accept the Terms of Service" }) }),
 });
 
 export type LoginData = z.infer<typeof loginSchema>;

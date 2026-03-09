@@ -9,7 +9,7 @@ interface AuthContextType {
   user: AuthUser | null;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  register: (email: string, password: string, displayName: string) => Promise<void>;
+  register: (email: string, password: string, displayName: string, tosAccepted?: boolean) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -43,8 +43,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const registerMutation = useMutation({
-    mutationFn: async ({ email, password, displayName }: { email: string; password: string; displayName: string }) => {
-      const res = await apiRequest("POST", "/api/auth/register", { email, password, displayName });
+    mutationFn: async ({ email, password, displayName, tosAccepted }: { email: string; password: string; displayName: string; tosAccepted?: boolean }) => {
+      const res = await apiRequest("POST", "/api/auth/register", { email, password, displayName, tosAccepted });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.message || "Registration failed");
@@ -69,8 +69,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await loginMutation.mutateAsync({ username, password });
   };
 
-  const register = async (email: string, password: string, displayName: string) => {
-    await registerMutation.mutateAsync({ email, password, displayName });
+  const register = async (email: string, password: string, displayName: string, tosAccepted?: boolean) => {
+    await registerMutation.mutateAsync({ email, password, displayName, tosAccepted });
   };
 
   const logout = async () => {

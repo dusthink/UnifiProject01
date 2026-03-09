@@ -21,6 +21,8 @@ import TenantsPage from "@/pages/admin/tenants";
 import ControllersPage from "@/pages/admin/controllers";
 import TenantPortal from "@/pages/tenant/portal";
 import TenantRegisterPage from "@/pages/tenant/register";
+import TermsOfServicePage from "@/pages/terms-of-service";
+import { TosDialog } from "@/components/tos-dialog";
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -92,19 +94,25 @@ function AppContent() {
     );
   }
 
+  const needsTosAcceptance = user && !user.tosAcceptedAt;
+
   return (
-    <Switch>
-      <Route path="/register/tenant" component={TenantRegisterPage} />
-      <Route>
-        {!user ? (
-          <LoginPage />
-        ) : user.role === "tenant" ? (
-          <TenantPortal />
-        ) : (
-          <AdminLayout />
-        )}
-      </Route>
-    </Switch>
+    <>
+      <Switch>
+        <Route path="/terms" component={TermsOfServicePage} />
+        <Route path="/register/tenant" component={TenantRegisterPage} />
+        <Route>
+          {!user ? (
+            <LoginPage />
+          ) : user.role === "tenant" ? (
+            <TenantPortal />
+          ) : (
+            <AdminLayout />
+          )}
+        </Route>
+      </Switch>
+      <TosDialog open={!!needsTosAcceptance} />
+    </>
   );
 }
 

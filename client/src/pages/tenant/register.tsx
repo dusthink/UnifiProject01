@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Wifi, AlertCircle, Eye, EyeOff, Building2, Home, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
@@ -33,6 +34,7 @@ export default function TenantRegisterPage() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [tosAccepted, setTosAccepted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -66,6 +68,10 @@ export default function TenantRegisterPage() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (!tosAccepted) {
+      setError("You must accept the Terms of Service to create an account");
+      return;
+    }
     if (password.length < 8) {
       setError("Password must be at least 8 characters");
       return;
@@ -76,6 +82,7 @@ export default function TenantRegisterPage() {
         email,
         password,
         displayName,
+        tosAccepted: true,
         inviteToken: token,
       });
       if (!res.ok) {
@@ -250,7 +257,29 @@ export default function TenantRegisterPage() {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-submit-register">
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="tos"
+                  checked={tosAccepted}
+                  onCheckedChange={(checked) => setTosAccepted(checked === true)}
+                  data-testid="checkbox-tos"
+                />
+                <label htmlFor="tos" className="text-sm text-muted-foreground leading-snug cursor-pointer">
+                  I agree to the{" "}
+                  <a
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary font-medium hover:underline"
+                    data-testid="link-tos"
+                  >
+                    Terms of Service
+                  </a>
+                  , including the use of unofficial UniFi APIs and support for verified firmware versions only.
+                </label>
+              </div>
+
+              <Button type="submit" className="w-full" disabled={isLoading || !tosAccepted} data-testid="button-submit-register">
                 {isLoading ? "Creating account..." : "Create Account"}
               </Button>
             </form>

@@ -115,6 +115,7 @@ export function setupAuth(app: Express) {
               role: "admin",
               displayName: profile.displayName || email || "User",
               avatarUrl: profile.photos?.[0]?.value || null,
+              tosAcceptedAt: null,
             });
 
             return done(null, newUser);

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Wifi, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
@@ -22,6 +23,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [tosAccepted, setTosAccepted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(googleError === "google_auth_failed" ? "Google sign-in failed. Please try again." : "");
 
@@ -49,13 +51,17 @@ export default function LoginPage() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (!tosAccepted) {
+      setError("You must accept the Terms of Service to create an account");
+      return;
+    }
     if (password.length < 8) {
       setError("Password must be at least 8 characters");
       return;
     }
     setIsLoading(true);
     try {
-      await register(email, password, displayName);
+      await register(email, password, displayName, true);
       toast({ title: "Account created!", description: "Welcome to UniFi MDU Manager." });
     } catch (err: any) {
       setError(err.message || "Registration failed. Please try again.");
@@ -72,6 +78,7 @@ export default function LoginPage() {
     setMode(mode === "login" ? "register" : "login");
     setError("");
     setPassword("");
+    setTosAccepted(false);
   };
 
   return (
@@ -186,7 +193,31 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-submit-auth">
+              {mode === "register" && (
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="tos"
+                    checked={tosAccepted}
+                    onCheckedChange={(checked) => setTosAccepted(checked === true)}
+                    data-testid="checkbox-tos"
+                  />
+                  <label htmlFor="tos" className="text-sm text-muted-foreground leading-snug cursor-pointer">
+                    I agree to the{" "}
+                    <a
+                      href="/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary font-medium hover:underline"
+                      data-testid="link-tos"
+                    >
+                      Terms of Service
+                    </a>
+                    , including the use of unofficial UniFi APIs and support for verified firmware versions only.
+                  </label>
+                </div>
+              )}
+
+              <Button type="submit" className="w-full" disabled={isLoading || (mode === "register" && !tosAccepted)} data-testid="button-submit-auth">
                 {isLoading
                   ? (mode === "login" ? "Signing in..." : "Creating account...")
                   : (mode === "login" ? "Sign In" : "Create Account")}

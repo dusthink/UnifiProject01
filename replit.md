@@ -20,7 +20,8 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - **Admin self-registration:** Open -- anyone creating account via main signup form or Google becomes admin
 - **Tenant registration:** Invite-only -- admins generate invite links per unit, tenants use those links to register
 - **Invite tokens:** 7-day expiry, single-use, optional email binding, stored in `invite_tokens` table
-- Users table supports: username, email, password (nullable for Google-only accounts), googleId, avatarUrl
+- **Terms of Service (TOS):** Required checkbox on both admin and tenant registration forms; links to `/terms` page; `tosAcceptedAt` timestamp saved on user creation
+- Users table supports: username, email, password (nullable for Google-only accounts), googleId, avatarUrl, tosAcceptedAt
 - Default admin seed: username `admin`, password `admin123`
 - Google OAuth callback: `/api/auth/google/callback`
 - Tenant registration page: `/register/tenant?token=xxx`

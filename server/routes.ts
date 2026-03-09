@@ -43,7 +43,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid input" });
       }
 
-      const { email, password, displayName } = parsed.data;
+      const { email, password, displayName, tosAccepted } = parsed.data;
       const inviteToken = req.body.inviteToken as string | undefined;
 
       const existingEmail = await storage.getUserByEmail(email);
@@ -85,6 +85,7 @@ export async function registerRoutes(
         role,
         unitId,
         displayName,
+        tosAcceptedAt: new Date(),
       });
 
       if (inviteToken) {
@@ -226,6 +227,16 @@ export async function registerRoutes(
   app.get("/api/auth/me", (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const { password, ...safeUser } = req.user as any;
+    res.json(safeUser);
+  });
+
+  app.post("/api/auth/accept-tos", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const user = req.user as any;
+    await storage.updateUser(user.id, { tosAcceptedAt: new Date() });
+    const updated = await storage.getUser(user.id);
+    if (!updated) return res.status(404).json({ message: "User not found" });
+    const { password, ...safeUser } = updated;
     res.json(safeUser);
   });
 

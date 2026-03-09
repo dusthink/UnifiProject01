@@ -7,10 +7,11 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi } from "lucide-react";
+import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import type { Network as NetworkType } from "@shared/schema";
 
 interface Controller {
   id: string;
@@ -169,22 +170,53 @@ export default function ControllersPage() {
   const { toast } = useToast();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editController, setEditController] = useState<Controller | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedCtrlId, setExpandedCtrlId] = useState<string | null>(null);
+  const [expandedSection, setExpandedSection] = useState<"sites" | "networks" | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
+  const [addNetworkOpen, setAddNetworkOpen] = useState<string | null>(null);
+  const [networkName, setNetworkName] = useState("");
+  const [networkVlanId, setNetworkVlanId] = useState("");
+  const [networkSubnet, setNetworkSubnet] = useState("");
+  const [networkDhcpEnabled, setNetworkDhcpEnabled] = useState(true);
+  const [networkDhcpStart, setNetworkDhcpStart] = useState("");
+  const [networkDhcpStop, setNetworkDhcpStop] = useState("");
 
   const { data: controllers, isLoading } = useQuery<Controller[]>({
     queryKey: ["/api/controllers"],
   });
 
+  const isExpanded = (ctrlId: string, section: "sites" | "networks") =>
+    expandedCtrlId === ctrlId && expandedSection === section;
+
+  const toggleSection = (ctrlId: string, section: "sites" | "networks") => {
+    if (expandedCtrlId === ctrlId && expandedSection === section) {
+      setExpandedCtrlId(null);
+      setExpandedSection(null);
+    } else {
+      setExpandedCtrlId(ctrlId);
+      setExpandedSection(section);
+    }
+  };
+
   const { data: sites } = useQuery<any[]>({
-    queryKey: ["/api/controllers", expandedId, "sites"],
+    queryKey: ["/api/controllers", expandedCtrlId, "sites"],
     queryFn: async () => {
-      if (!expandedId) return [];
-      const res = await fetch(`/api/controllers/${expandedId}/sites`, { credentials: "include" });
+      if (!expandedCtrlId) return [];
+      const res = await fetch(`/api/controllers/${expandedCtrlId}/sites`, { credentials: "include" });
       return res.json();
     },
-    enabled: !!expandedId,
+    enabled: !!expandedCtrlId && expandedSection === "sites",
+  });
+
+  const { data: controllerNetworks } = useQuery<NetworkType[]>({
+    queryKey: ["/api/networks/controller", expandedCtrlId],
+    queryFn: async () => {
+      if (!expandedCtrlId) return [];
+      const res = await fetch(`/api/networks/controller/${expandedCtrlId}`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!expandedCtrlId && expandedSection === "networks",
   });
 
   const addMutation = useMutation({
@@ -224,6 +256,31 @@ export default function ControllersPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const createNetworkMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/networks", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", addNetworkOpen] });
+      setAddNetworkOpen(null);
+      resetNetworkForm();
+      toast({ title: "Network created" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteNetworkMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/networks/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", expandedCtrlId] });
+      toast({ title: "Network deleted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   const handleTestSaved = async (id: string) => {
     setTestingId(id);
     setTestResults((prev) => { const next = { ...prev }; delete next[id]; return next; });
@@ -236,6 +293,26 @@ export default function ControllersPage() {
       setTestResults((prev) => ({ ...prev, [id]: { success: false, message: err.message } }));
     }
     setTestingId(null);
+  };
+
+  const resetNetworkForm = () => {
+    setNetworkName("");
+    setNetworkVlanId("");
+    setNetworkSubnet("");
+    setNetworkDhcpEnabled(true);
+    setNetworkDhcpStart("");
+    setNetworkDhcpStop("");
+  };
+
+  const autoFillSubnet = (vlan: string) => {
+    const v = parseInt(vlan);
+    if (!isNaN(v) && v > 0 && v < 4095) {
+      const oct2 = Math.floor(v / 256);
+      const oct3 = v % 256;
+      setNetworkSubnet(`10.${oct2}.${oct3}.1/24`);
+      setNetworkDhcpStart(`10.${oct2}.${oct3}.100`);
+      setNetworkDhcpStop(`10.${oct2}.${oct3}.254`);
+    }
   };
 
   return (
@@ -284,6 +361,106 @@ export default function ControllersPage() {
               isPending={editMutation.isPending}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!addNetworkOpen} onOpenChange={(open) => { if (!open) { setAddNetworkOpen(null); resetNetworkForm(); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Network</DialogTitle>
+            <DialogDescription>Create a VLAN network that can be assigned to units.</DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!addNetworkOpen) return;
+              createNetworkMutation.mutate({
+                controllerId: addNetworkOpen,
+                name: networkName,
+                vlanId: parseInt(networkVlanId),
+                ipSubnet: networkSubnet || null,
+                dhcpEnabled: networkDhcpEnabled,
+                dhcpStart: networkDhcpStart || null,
+                dhcpStop: networkDhcpStop || null,
+              });
+            }}
+            className="space-y-4"
+          >
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Network Name</Label>
+                <Input
+                  value={networkName}
+                  onChange={(e) => setNetworkName(e.target.value)}
+                  placeholder="e.g., Unit-101-Net"
+                  required
+                  data-testid="input-network-name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>VLAN ID</Label>
+                <Input
+                  type="number"
+                  value={networkVlanId}
+                  onChange={(e) => {
+                    setNetworkVlanId(e.target.value);
+                    autoFillSubnet(e.target.value);
+                  }}
+                  placeholder="e.g., 100"
+                  required
+                  min={1}
+                  max={4094}
+                  data-testid="input-network-vlan"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>IP Subnet</Label>
+              <Input
+                value={networkSubnet}
+                onChange={(e) => setNetworkSubnet(e.target.value)}
+                placeholder="e.g., 10.0.100.1/24"
+                data-testid="input-network-subnet"
+              />
+              <p className="text-xs text-muted-foreground">Auto-filled from VLAN ID. Modify if needed.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="dhcp-enabled"
+                checked={networkDhcpEnabled}
+                onChange={(e) => setNetworkDhcpEnabled(e.target.checked)}
+                className="rounded"
+                data-testid="checkbox-dhcp-enabled"
+              />
+              <Label htmlFor="dhcp-enabled" className="cursor-pointer">Enable DHCP</Label>
+            </div>
+            {networkDhcpEnabled && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>DHCP Start</Label>
+                  <Input
+                    value={networkDhcpStart}
+                    onChange={(e) => setNetworkDhcpStart(e.target.value)}
+                    placeholder="e.g., 10.0.100.100"
+                    data-testid="input-dhcp-start"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>DHCP Stop</Label>
+                  <Input
+                    value={networkDhcpStop}
+                    onChange={(e) => setNetworkDhcpStop(e.target.value)}
+                    placeholder="e.g., 10.0.100.254"
+                    data-testid="input-dhcp-stop"
+                  />
+                </div>
+              </div>
+            )}
+            <Button type="submit" className="w-full" disabled={createNetworkMutation.isPending} data-testid="button-submit-network">
+              {createNetworkMutation.isPending ? "Creating..." : "Create Network"}
+            </Button>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -366,12 +543,21 @@ export default function ControllersPage() {
                     </Button>
                     <Button
                       size="sm"
-                      variant="outline"
-                      onClick={() => setExpandedId(expandedId === ctrl.id ? null : ctrl.id)}
+                      variant={isExpanded(ctrl.id, "sites") ? "default" : "outline"}
+                      onClick={() => toggleSection(ctrl.id, "sites")}
                       data-testid={`button-expand-controller-${ctrl.id}`}
                     >
                       <Globe className="h-4 w-4 mr-1" />
                       Sites
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={isExpanded(ctrl.id, "networks") ? "default" : "outline"}
+                      onClick={() => toggleSection(ctrl.id, "networks")}
+                      data-testid={`button-networks-controller-${ctrl.id}`}
+                    >
+                      <Layers className="h-4 w-4 mr-1" />
+                      Networks
                     </Button>
                     <Button
                       size="sm"
@@ -404,7 +590,7 @@ export default function ControllersPage() {
                   </div>
                 )}
 
-                {expandedId === ctrl.id && (
+                {isExpanded(ctrl.id, "sites") && (
                   <div className="mt-4 pt-4 border-t">
                     <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
                       <Globe className="h-4 w-4" />
@@ -434,6 +620,76 @@ export default function ControllersPage() {
                     ) : (
                       <p className="text-sm text-muted-foreground py-4 text-center">
                         {ctrl.isVerified ? "No sites found" : "Test connection first to discover sites"}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {isExpanded(ctrl.id, "networks") && (
+                  <div className="mt-4 pt-4 border-t">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-medium flex items-center gap-2">
+                        <Layers className="h-4 w-4" />
+                        Networks (VLANs)
+                      </h4>
+                      <Button
+                        size="sm"
+                        onClick={() => setAddNetworkOpen(ctrl.id)}
+                        data-testid={`button-add-network-${ctrl.id}`}
+                      >
+                        <Plus className="h-3.5 w-3.5 mr-1" />
+                        Add Network
+                      </Button>
+                    </div>
+                    {controllerNetworks && controllerNetworks.length > 0 ? (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>VLAN</TableHead>
+                            <TableHead>Subnet</TableHead>
+                            <TableHead>DHCP</TableHead>
+                            <TableHead className="w-[60px]">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {controllerNetworks.map((net) => (
+                            <TableRow key={net.id} data-testid={`row-network-${net.id}`}>
+                              <TableCell className="font-medium" data-testid={`text-network-name-${net.id}`}>{net.name}</TableCell>
+                              <TableCell>
+                                <Badge variant="secondary" data-testid={`badge-vlan-${net.id}`}>VLAN {net.vlanId}</Badge>
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground font-mono">{net.ipSubnet || "—"}</TableCell>
+                              <TableCell>
+                                {net.dhcpEnabled ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    {net.dhcpStart} - {net.dhcpStop}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Disabled</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    if (confirm("Delete this network?")) {
+                                      deleteNetworkMutation.mutate(net.id);
+                                    }
+                                  }}
+                                  data-testid={`button-delete-network-${net.id}`}
+                                >
+                                  <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    ) : (
+                      <p className="text-sm text-muted-foreground py-4 text-center">
+                        No networks configured yet. Add a network to get started.
                       </p>
                     )}
                   </div>

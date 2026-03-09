@@ -1,7 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers, sites,
+  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers, sites, networks,
   type User, type InsertUser,
   type Community, type InsertCommunity,
   type Building, type InsertBuilding,
@@ -10,6 +10,7 @@ import {
   type UnitDevicePort, type InsertUnitDevicePort,
   type InviteToken, type InsertInviteToken,
   type Controller, type InsertController,
+  type Network, type InsertNetwork,
   type Site, type InsertSite,
 } from "@shared/schema";
 
@@ -64,6 +65,13 @@ export interface IStorage {
   createController(data: InsertController): Promise<Controller>;
   updateController(id: string, data: Partial<InsertController>): Promise<Controller | undefined>;
   deleteController(id: string): Promise<void>;
+
+  getNetworksByController(controllerId: string): Promise<Network[]>;
+  getNetwork(id: string): Promise<Network | undefined>;
+  createNetwork(data: InsertNetwork): Promise<Network>;
+  updateNetwork(id: string, data: Partial<InsertNetwork>): Promise<Network | undefined>;
+  deleteNetwork(id: string): Promise<void>;
+  deleteNetworksByController(controllerId: string): Promise<void>;
 
   getSitesByController(controllerId: string): Promise<Site[]>;
   getSite(id: string): Promise<Site | undefined>;
@@ -269,8 +277,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteController(id: string): Promise<void> {
+    await db.delete(networks).where(eq(networks.controllerId, id));
     await db.delete(sites).where(eq(sites.controllerId, id));
     await db.delete(controllers).where(eq(controllers.id, id));
+  }
+
+  async getNetworksByController(controllerId: string): Promise<Network[]> {
+    return db.select().from(networks).where(eq(networks.controllerId, controllerId));
+  }
+
+  async getNetwork(id: string): Promise<Network | undefined> {
+    const [network] = await db.select().from(networks).where(eq(networks.id, id));
+    return network;
+  }
+
+  async createNetwork(data: InsertNetwork): Promise<Network> {
+    const [network] = await db.insert(networks).values(data).returning();
+    return network;
+  }
+
+  async updateNetwork(id: string, data: Partial<InsertNetwork>): Promise<Network | undefined> {
+    const [network] = await db.update(networks).set(data).where(eq(networks.id, id)).returning();
+    return network;
+  }
+
+  async deleteNetwork(id: string): Promise<void> {
+    await db.delete(networks).where(eq(networks.id, id));
+  }
+
+  async deleteNetworksByController(controllerId: string): Promise<void> {
+    await db.delete(networks).where(eq(networks.controllerId, controllerId));
   }
 
   async getSitesByController(controllerId: string): Promise<Site[]> {

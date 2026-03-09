@@ -13,14 +13,15 @@ import { ArrowLeft, Plus, Trash2, Wifi, Shield, CheckCircle2, XCircle, Zap, Sett
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Building, Unit, Device, UnitDevicePort, User } from "@shared/schema";
+import type { Building, Unit, Device, UnitDevicePort, User, Community, Network } from "@shared/schema";
 
 type SafeUser = Omit<User, "password">;
 
-function UnitRow({ unit, devices, tenants, onDelete, onProvision, onDeprovision, onEdit }: {
+function UnitRow({ unit, devices, tenants, networks, onDelete, onProvision, onDeprovision, onEdit }: {
   unit: Unit;
   devices: Device[];
   tenants: SafeUser[];
+  networks: Network[];
   onDelete: (id: string) => void;
   onProvision: (id: string) => void;
   onDeprovision: (id: string) => void;
@@ -28,12 +29,15 @@ function UnitRow({ unit, devices, tenants, onDelete, onProvision, onDeprovision,
 }) {
   const tenant = unit.tenantId ? tenants.find(t => t.id === unit.tenantId) : null;
   const displayTenant = tenant ? (tenant.displayName || tenant.username) : unit.tenantName;
+  const network = unit.networkId ? networks.find(n => n.id === unit.networkId) : null;
 
   return (
     <TableRow data-testid={`row-unit-${unit.id}`}>
       <TableCell className="font-medium">{unit.unitNumber}</TableCell>
       <TableCell>
-        {unit.vlanId ? (
+        {network ? (
+          <Badge variant="secondary" data-testid={`badge-network-${unit.id}`}>{network.name} (VLAN {network.vlanId})</Badge>
+        ) : unit.vlanId ? (
           <Badge variant="secondary">VLAN {unit.vlanId}</Badge>
         ) : (
           <span className="text-xs text-muted-foreground">Not set</span>
@@ -95,7 +99,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
   const [editUnit, setEditUnit] = useState<Unit | null>(null);
 
   const [unitNumber, setUnitNumber] = useState("");
-  const [vlanId, setVlanId] = useState("");
+  const [selectedNetworkId, setSelectedNetworkId] = useState("");
   const [wifiMode, setWifiMode] = useState("ppsk");
   const [wifiSsid, setWifiSsid] = useState("");
   const [wifiPassword, setWifiPassword] = useState("");
@@ -121,6 +125,25 @@ export default function BuildingDetailPage({ id }: { id: string }) {
 
   const { data: tenants } = useQuery<SafeUser[]>({
     queryKey: ["/api/admin/tenant-users"],
+  });
+
+  const { data: community } = useQuery<Community>({
+    queryKey: ["/api/communities", building?.communityId],
+    queryFn: async () => {
+      const res = await fetch(`/api/communities/${building!.communityId}`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!building?.communityId,
+  });
+
+  const { data: controllerNetworks } = useQuery<Network[]>({
+    queryKey: ["/api/networks/controller", community?.controllerId],
+    queryFn: async () => {
+      if (!community?.controllerId) return [];
+      const res = await fetch(`/api/networks/controller/${community.controllerId}`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!community?.controllerId,
   });
 
   const { data: allPortAssignments } = useQuery<Record<string, UnitDevicePort[]>>({
@@ -225,7 +248,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
 
   const resetForm = () => {
     setUnitNumber("");
-    setVlanId("");
+    setSelectedNetworkId("");
     setWifiMode("ppsk");
     setWifiSsid("");
     setWifiPassword("");
@@ -236,7 +259,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
   const openEdit = (unit: Unit) => {
     setEditUnit(unit);
     setUnitNumber(unit.unitNumber);
-    setVlanId(unit.vlanId?.toString() || "");
+    setSelectedNetworkId(unit.networkId || "");
     setWifiMode(unit.wifiMode || "ppsk");
     setWifiSsid(unit.wifiSsid || "");
     setWifiPassword(unit.wifiPassword || "");
@@ -273,8 +296,26 @@ export default function BuildingDetailPage({ id }: { id: string }) {
           <Input value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder="e.g., 101" required data-testid="input-unit-number" />
         </div>
         <div className="space-y-2">
-          <Label>VLAN ID</Label>
-          <Input type="number" value={vlanId} onChange={(e) => setVlanId(e.target.value)} placeholder="e.g., 100" data-testid="input-vlan-id" />
+          <Label>Network</Label>
+          {controllerNetworks && controllerNetworks.length > 0 ? (
+            <Select value={selectedNetworkId} onValueChange={setSelectedNetworkId}>
+              <SelectTrigger data-testid="select-network">
+                <SelectValue placeholder="Select a network" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No network assigned</SelectItem>
+                {controllerNetworks.map((net) => (
+                  <SelectItem key={net.id} value={net.id} data-testid={`option-network-${net.id}`}>
+                    {net.name} (VLAN {net.vlanId})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <p className="text-xs text-muted-foreground pt-2">
+              {community?.controllerId ? "No networks configured on controller. Add networks in the Controllers page." : "No controller assigned to this community."}
+            </p>
+          )}
         </div>
       </div>
       <div className="space-y-2">
@@ -376,10 +417,13 @@ export default function BuildingDetailPage({ id }: { id: string }) {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                const netId = selectedNetworkId && selectedNetworkId !== "none" ? selectedNetworkId : null;
+                const selectedNet = netId ? controllerNetworks?.find(n => n.id === netId) : null;
                 createMutation.mutate({
                   buildingId: id,
                   unitNumber,
-                  vlanId: vlanId ? parseInt(vlanId) : null,
+                  networkId: netId,
+                  vlanId: selectedNet?.vlanId ?? null,
                   wifiMode,
                   wifiSsid: wifiSsid || null,
                   wifiPassword: wifiPassword || null,
@@ -406,11 +450,14 @@ export default function BuildingDetailPage({ id }: { id: string }) {
             onSubmit={(e) => {
               e.preventDefault();
               if (!editUnit) return;
+              const netId = selectedNetworkId && selectedNetworkId !== "none" ? selectedNetworkId : null;
+              const selectedNet = netId ? controllerNetworks?.find(n => n.id === netId) : null;
               updateMutation.mutate({
                 unitId: editUnit.id,
                 data: {
                   unitNumber,
-                  vlanId: vlanId ? parseInt(vlanId) : null,
+                  networkId: netId,
+                  vlanId: selectedNet?.vlanId ?? null,
                   wifiMode,
                   wifiSsid: wifiSsid || null,
                   wifiPassword: wifiPassword || null,
@@ -443,7 +490,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Unit</TableHead>
-                    <TableHead>VLAN</TableHead>
+                    <TableHead>Network</TableHead>
                     <TableHead>WiFi Mode</TableHead>
                     <TableHead>SSID</TableHead>
                     <TableHead>Tenant</TableHead>
@@ -458,6 +505,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                       unit={unit}
                       devices={devices || []}
                       tenants={tenants || []}
+                      networks={controllerNetworks || []}
                       onDelete={(uid) => { if (confirm("Delete this unit?")) deleteMutation.mutate(uid); }}
                       onProvision={(uid) => provisionMutation.mutate(uid)}
                       onDeprovision={(uid) => deprovisionMutation.mutate(uid)}

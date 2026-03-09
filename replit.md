@@ -9,7 +9,7 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - **UniFi Integration:** Class-based UnifiClient supporting both UniFi OS (UDM/UDR/Cloud Gateway) and classic controllers, with per-controller credentials and auth cookie caching
 
 ## Key Features
-- **Admin Portal:** Community/building/unit management, device management, VLAN provisioning, WiFi configuration (PPSK or individual SSID), tenant account creation
+- **Admin Portal:** Community/building/unit management, device management, network/VLAN management per controller, VLAN provisioning, WiFi configuration (PPSK or individual SSID), tenant account creation
 - **Tenant Portal:** View WiFi settings, change WiFi password, view connected devices and usage statistics
 - **Multi-Controller Support:** Add/edit/test/manage multiple UniFi controllers, auto-detect UniFi OS vs classic, show hardware model/firmware/uptime, persist discovered sites
 - **UniFi Integration:** Create VLANs, configure port profiles, manage WLANs, discover devices (all per-controller)
@@ -31,7 +31,8 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - Sites (id, controllerId, unifiSiteId, name, description, deviceCount, isDefault) — persisted from UniFi on successful test
 - Users (admin/tenant roles, optional Google ID, email, avatar, tosAcceptedAt)
 - InviteTokens (token, unitId, email, expiresAt, usedAt, createdBy)
-- Communities (has controllerId FK, unifiSiteId) → Buildings → Units (hierarchical, tenantId FK to users)
+- Networks (id, controllerId, name, vlanId, ipSubnet, dhcpEnabled, dhcpStart, dhcpStop, unifiNetworkId, siteId) — VLAN networks per controller
+- Communities (has controllerId FK, unifiSiteId) → Buildings → Units (hierarchical, tenantId FK to users, networkId FK to networks)
 - Devices (UniFi switches/APs, linked to buildings)
 - UnitDevicePorts (device-to-unit assignments for provisioning)
 

@@ -23,6 +23,20 @@ export const controllers = pgTable("controllers", {
   uptimeSeconds: integer("uptime_seconds"),
 });
 
+export const networks = pgTable("networks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  controllerId: varchar("controller_id").notNull(),
+  name: text("name").notNull(),
+  vlanId: integer("vlan_id").notNull(),
+  purpose: text("purpose").default("corporate"),
+  ipSubnet: text("ip_subnet"),
+  dhcpEnabled: boolean("dhcp_enabled").default(true),
+  dhcpStart: text("dhcp_start"),
+  dhcpStop: text("dhcp_stop"),
+  unifiNetworkId: text("unifi_network_id"),
+  siteId: text("site_id").default("default"),
+});
+
 export const sites = pgTable("sites", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   controllerId: varchar("controller_id").notNull(),
@@ -65,6 +79,7 @@ export const units = pgTable("units", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   buildingId: varchar("building_id").notNull(),
   unitNumber: text("unit_number").notNull(),
+  networkId: varchar("network_id"),
   vlanId: integer("vlan_id"),
   wifiMode: wifiModeEnum("wifi_mode").default("ppsk"),
   wifiSsid: text("wifi_ssid"),
@@ -108,9 +123,14 @@ export const sitesRelations = relations(sites, ({ one }) => ({
   controller: one(controllers, { fields: [sites.controllerId], references: [controllers.id] }),
 }));
 
+export const networksRelations = relations(networks, ({ one }) => ({
+  controller: one(controllers, { fields: [networks.controllerId], references: [controllers.id] }),
+}));
+
 export const controllersRelations = relations(controllers, ({ many }) => ({
   communities: many(communities),
   sites: many(sites),
+  networks: many(networks),
 }));
 
 export const communitiesRelations = relations(communities, ({ one, many }) => ({
@@ -144,6 +164,7 @@ export const inviteTokensRelations = relations(inviteTokens, ({ one }) => ({
 }));
 
 export const insertControllerSchema = createInsertSchema(controllers).omit({ id: true });
+export const insertNetworkSchema = createInsertSchema(networks).omit({ id: true });
 export const insertSiteSchema = createInsertSchema(sites).omit({ id: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertCommunitySchema = createInsertSchema(communities).omit({ id: true });
@@ -167,6 +188,8 @@ export type InsertUnitDevicePort = z.infer<typeof insertUnitDevicePortSchema>;
 export type UnitDevicePort = typeof unitDevicePorts.$inferSelect;
 export type InsertController = z.infer<typeof insertControllerSchema>;
 export type Controller = typeof controllers.$inferSelect;
+export type InsertNetwork = z.infer<typeof insertNetworkSchema>;
+export type Network = typeof networks.$inferSelect;
 export type InsertSite = z.infer<typeof insertSiteSchema>;
 export type Site = typeof sites.$inferSelect;
 export type InsertInviteToken = z.infer<typeof insertInviteTokenSchema>;

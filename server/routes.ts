@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireAdmin, hashPassword, comparePasswords } from "./auth";
 import { UnifiClient, getUnifiClient, clearClientCache } from "./unifi";
-import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDeviceSchema, insertUnitDevicePortSchema, loginSchema, registerSchema } from "@shared/schema";
+import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDeviceSchema, insertUnitDevicePortSchema, insertNetworkSchema, loginSchema, registerSchema } from "@shared/schema";
 import passport from "passport";
 import { randomBytes } from "crypto";
 
@@ -331,6 +331,13 @@ export async function registerRoutes(
       data.tenantName = tenant.displayName || tenant.username;
       data.tenantEmail = tenant.email || undefined;
     }
+    if (data.networkId) {
+      const network = await storage.getNetwork(data.networkId);
+      if (!network) {
+        return res.status(400).json({ message: "Invalid network: network not found" });
+      }
+      data.vlanId = network.vlanId;
+    }
     const unit = await storage.createUnit(data);
     res.status(201).json(unit);
   });
@@ -351,6 +358,17 @@ export async function registerRoutes(
         updateData.tenantId = null;
         updateData.tenantName = null;
         updateData.tenantEmail = null;
+      }
+    }
+    if ("networkId" in updateData) {
+      if (updateData.networkId) {
+        const network = await storage.getNetwork(updateData.networkId);
+        if (!network) {
+          return res.status(400).json({ message: "Invalid network: network not found" });
+        }
+        updateData.vlanId = network.vlanId;
+      } else {
+        updateData.networkId = null;
       }
     }
     const unit = await storage.updateUnit(req.params.id, updateData);
@@ -537,8 +555,39 @@ export async function registerRoutes(
     const controller = await storage.getController(req.params.id);
     if (!controller) return res.status(404).json({ message: "Controller not found" });
     const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
-    const networks = await client.getNetworks(req.params.siteId);
-    res.json(networks);
+    const liveNetworks = await client.getNetworks(req.params.siteId);
+    res.json(liveNetworks);
+  });
+
+  app.get("/api/networks/controller/:controllerId", requireAdmin, async (req, res) => {
+    const result = await storage.getNetworksByController(req.params.controllerId);
+    res.json(result);
+  });
+
+  app.get("/api/networks/:id", requireAdmin, async (req, res) => {
+    const network = await storage.getNetwork(req.params.id);
+    if (!network) return res.status(404).json({ message: "Network not found" });
+    res.json(network);
+  });
+
+  app.post("/api/networks", requireAdmin, async (req, res) => {
+    const parsed = insertNetworkSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    const network = await storage.createNetwork(parsed.data);
+    res.status(201).json(network);
+  });
+
+  app.patch("/api/networks/:id", requireAdmin, async (req, res) => {
+    const partial = insertNetworkSchema.partial().safeParse(req.body);
+    if (!partial.success) return res.status(400).json({ message: partial.error.message });
+    const network = await storage.updateNetwork(req.params.id, partial.data);
+    if (!network) return res.status(404).json({ message: "Network not found" });
+    res.json(network);
+  });
+
+  app.delete("/api/networks/:id", requireAdmin, async (req, res) => {
+    await storage.deleteNetwork(req.params.id);
+    res.status(204).end();
   });
 
   app.post("/api/units/:id/provision", requireAdmin, async (req, res) => {
@@ -553,7 +602,19 @@ export async function registerRoutes(
       if (!ctx) return res.status(400).json({ message: "No controller assigned to this community" });
 
       const { client, siteId } = ctx;
-      const vlanId = unit.vlanId || 100;
+
+      let vlanId: number;
+      if (unit.networkId) {
+        const networkRecord = await storage.getNetwork(unit.networkId);
+        if (!networkRecord) {
+          return res.status(400).json({ message: "Assigned network not found. Please update the unit's network assignment." });
+        }
+        vlanId = networkRecord.vlanId;
+      } else if (unit.vlanId) {
+        vlanId = unit.vlanId;
+      } else {
+        return res.status(400).json({ message: "No network or VLAN assigned to this unit. Please assign a network before provisioning." });
+      }
 
       const networkResult = await client.createNetwork(
         siteId,

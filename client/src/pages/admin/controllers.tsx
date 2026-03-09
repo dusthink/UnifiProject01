@@ -156,6 +156,8 @@ export default function ControllersPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editController, setEditController] = useState<Controller | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
 
   const { data: controllers, isLoading } = useQuery<Controller[]>({
     queryKey: ["/api/controllers"],
@@ -207,6 +209,20 @@ export default function ControllersPage() {
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
+
+  const handleTestSaved = async (id: string) => {
+    setTestingId(id);
+    setTestResults((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    try {
+      const res = await apiRequest("POST", `/api/controllers/${id}/test`);
+      const data = await res.json();
+      setTestResults((prev) => ({ ...prev, [id]: data }));
+      queryClient.invalidateQueries({ queryKey: ["/api/controllers"] });
+    } catch (err: any) {
+      setTestResults((prev) => ({ ...prev, [id]: { success: false, message: err.message } }));
+    }
+    setTestingId(null);
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -298,6 +314,16 @@ export default function ControllersPage() {
                     <Button
                       size="sm"
                       variant="outline"
+                      onClick={() => handleTestSaved(ctrl.id)}
+                      disabled={testingId === ctrl.id}
+                      data-testid={`button-test-saved-controller-${ctrl.id}`}
+                    >
+                      <RefreshCw className={`h-4 w-4 mr-1 ${testingId === ctrl.id ? "animate-spin" : ""}`} />
+                      {testingId === ctrl.id ? "Testing..." : "Test"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() => setExpandedId(expandedId === ctrl.id ? null : ctrl.id)}
                       data-testid={`button-expand-controller-${ctrl.id}`}
                     >
@@ -327,6 +353,13 @@ export default function ControllersPage() {
                     </Button>
                   </div>
                 </div>
+
+                {testResults[ctrl.id] && (
+                  <div className={`mt-3 flex items-center gap-2 p-3 rounded-md text-sm ${testResults[ctrl.id].success ? "bg-green-500/10 text-green-700 dark:text-green-400" : "bg-destructive/10 text-destructive"}`} data-testid={`text-test-saved-result-${ctrl.id}`}>
+                    {testResults[ctrl.id].success ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
+                    {testResults[ctrl.id].message}
+                  </div>
+                )}
 
                 {expandedId === ctrl.id && (
                   <div className="mt-4 pt-4 border-t">

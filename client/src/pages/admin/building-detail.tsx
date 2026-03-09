@@ -265,7 +265,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     );
   };
 
-  const UnitFormFields = () => (
+  const unitFormFields = (
     <>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
@@ -388,7 +388,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
               }}
               className="space-y-4"
             >
-              <UnitFormFields />
+              {unitFormFields}
               <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-unit">
                 {createMutation.isPending ? "Adding..." : "Add Unit"}
               </Button>
@@ -421,7 +421,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
             }}
             className="space-y-4"
           >
-            <UnitFormFields />
+            {unitFormFields}
             <Button type="submit" className="w-full" disabled={updateMutation.isPending} data-testid="button-update-unit">
               {updateMutation.isPending ? "Updating..." : "Update Unit"}
             </Button>

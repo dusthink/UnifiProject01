@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff } from "lucide-react";
+import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -21,15 +21,140 @@ interface Controller {
   lastConnectedAt: string | null;
 }
 
+function ControllerForm({
+  mode,
+  initial,
+  onSubmit,
+  isPending,
+}: {
+  mode: "add" | "edit";
+  initial?: { name: string; url: string; username: string };
+  onSubmit: (data: { name: string; url: string; username: string; password: string }) => void;
+  isPending: boolean;
+}) {
+  const { toast } = useToast();
+  const [name, setName] = useState(initial?.name || "");
+  const [url, setUrl] = useState(initial?.url || "");
+  const [username, setUsername] = useState(initial?.username || "");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  const handleTest = async () => {
+    if (!url || !username || !password) {
+      toast({ title: "Fill in all fields", description: "URL, username, and password are required to test.", variant: "destructive" });
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await apiRequest("POST", "/api/controllers/test-credentials", { url, username, password });
+      const data = await res.json();
+      setTestResult(data);
+    } catch (err: any) {
+      setTestResult({ success: false, message: err.message });
+    }
+    setTesting(false);
+  };
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit({ name, url, username, password });
+      }}
+      className="space-y-4"
+    >
+      <div className="space-y-2">
+        <Label>Name</Label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Main Office Controller"
+          required
+          data-testid="input-controller-name"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Controller URL</Label>
+        <Input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://192.168.1.1:8443"
+          required
+          data-testid="input-controller-url"
+        />
+        <p className="text-xs text-muted-foreground">Include the port (typically 8443 for self-hosted or 443 for UniFi Cloud)</p>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Username</Label>
+          <Input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="admin"
+            required
+            autoComplete="off"
+            data-testid="input-controller-username"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Password{mode === "edit" ? " (leave blank to keep current)" : ""}</Label>
+          <div className="relative">
+            <Input
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={mode === "edit" ? "••••••••" : ""}
+              required={mode === "add"}
+              autoComplete="new-password"
+              className="pr-10"
+              data-testid="input-controller-password"
+            />
+            <button
+              type="button"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              onClick={() => setShowPassword(!showPassword)}
+              tabIndex={-1}
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {testResult && (
+        <div className={`flex items-center gap-2 p-3 rounded-md text-sm ${testResult.success ? "bg-green-500/10 text-green-700 dark:text-green-400" : "bg-destructive/10 text-destructive"}`} data-testid="text-test-result">
+          {testResult.success ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
+          {testResult.message}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1"
+          onClick={handleTest}
+          disabled={testing}
+          data-testid="button-test-connection"
+        >
+          <RefreshCw className={`h-4 w-4 mr-2 ${testing ? "animate-spin" : ""}`} />
+          {testing ? "Testing..." : "Test Connection"}
+        </Button>
+        <Button type="submit" className="flex-1" disabled={isPending} data-testid="button-submit-controller">
+          {isPending ? "Saving..." : mode === "add" ? "Add Controller" : "Save Changes"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 export default function ControllersPage() {
   const { toast } = useToast();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [testingId, setTestingId] = useState<string | null>(null);
+  const [editController, setEditController] = useState<Controller | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const { data: controllers, isLoading } = useQuery<Controller[]>({
@@ -54,34 +179,22 @@ export default function ControllersPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/controllers"] });
       setAddDialogOpen(false);
-      setName("");
-      setUrl("");
-      setUsername("");
-      setPassword("");
       toast({ title: "Controller added" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const testMutation = useMutation({
-    mutationFn: async (id: string) => {
-      setTestingId(id);
-      const res = await apiRequest("POST", `/api/controllers/${id}/test`);
+  const editMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
+      const res = await apiRequest("PATCH", `/api/controllers/${id}`, data);
       return res.json();
     },
-    onSuccess: (data: any) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/controllers"] });
-      if (data.success) {
-        toast({ title: "Connection successful", description: data.message });
-      } else {
-        toast({ title: "Connection failed", description: data.message, variant: "destructive" });
-      }
-      setTestingId(null);
+      setEditController(null);
+      toast({ title: "Controller updated" });
     },
-    onError: (err: any) => {
-      toast({ title: "Test failed", description: err.message, variant: "destructive" });
-      setTestingId(null);
-    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -112,78 +225,37 @@ export default function ControllersPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Add UniFi Controller</DialogTitle>
+              <DialogDescription>Enter the controller details and test the connection before adding.</DialogDescription>
             </DialogHeader>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                addMutation.mutate({ name, url, username, password });
-              }}
-              className="space-y-4"
-            >
-              <div className="space-y-2">
-                <Label>Name</Label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Main Office Controller"
-                  required
-                  data-testid="input-controller-name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Controller URL</Label>
-                <Input
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://192.168.1.1:8443"
-                  required
-                  data-testid="input-controller-url"
-                />
-                <p className="text-xs text-muted-foreground">Include the port (typically 8443 for self-hosted or 443 for UniFi Cloud)</p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Username</Label>
-                  <Input
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="admin"
-                    required
-                    autoComplete="off"
-                    data-testid="input-controller-username"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Password</Label>
-                  <div className="relative">
-                    <Input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      required
-                      autoComplete="new-password"
-                      className="pr-10"
-                      data-testid="input-controller-password"
-                    />
-                    <button
-                      type="button"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      onClick={() => setShowPassword(!showPassword)}
-                      tabIndex={-1}
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <Button type="submit" className="w-full" disabled={addMutation.isPending} data-testid="button-submit-controller">
-                {addMutation.isPending ? "Adding..." : "Add Controller"}
-              </Button>
-            </form>
+            <ControllerForm
+              mode="add"
+              onSubmit={(data) => addMutation.mutate(data)}
+              isPending={addMutation.isPending}
+            />
           </DialogContent>
         </Dialog>
       </div>
+
+      <Dialog open={!!editController} onOpenChange={(open) => { if (!open) setEditController(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Controller</DialogTitle>
+            <DialogDescription>Update the controller details. Leave password blank to keep the current one.</DialogDescription>
+          </DialogHeader>
+          {editController && (
+            <ControllerForm
+              mode="edit"
+              initial={{ name: editController.name, url: editController.url, username: editController.username }}
+              onSubmit={(data) => {
+                const payload: Record<string, any> = { name: data.name, url: data.url, username: data.username };
+                if (data.password) payload.password = data.password;
+                editMutation.mutate({ id: editController.id, data: payload });
+              }}
+              isPending={editMutation.isPending}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {isLoading ? (
         <div className="space-y-4">
@@ -234,13 +306,12 @@ export default function ControllersPage() {
                     </Button>
                     <Button
                       size="sm"
-                      variant="secondary"
-                      onClick={() => testMutation.mutate(ctrl.id)}
-                      disabled={testingId === ctrl.id}
-                      data-testid={`button-test-controller-${ctrl.id}`}
+                      variant="outline"
+                      onClick={() => setEditController(ctrl)}
+                      data-testid={`button-edit-controller-${ctrl.id}`}
                     >
-                      <RefreshCw className={`h-4 w-4 mr-1 ${testingId === ctrl.id ? "animate-spin" : ""}`} />
-                      Test
+                      <Pencil className="h-4 w-4 mr-1" />
+                      Edit
                     </Button>
                     <Button
                       size="sm"

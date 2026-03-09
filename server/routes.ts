@@ -410,6 +410,16 @@ export async function registerRoutes(
     res.status(204).end();
   });
 
+  app.post("/api/controllers/test-credentials", requireAdmin, async (req, res) => {
+    const { url, username, password } = req.body;
+    if (!url || !username || !password) {
+      return res.status(400).json({ success: false, message: "URL, username, and password are required" });
+    }
+    const client = new UnifiClient(url, username, password);
+    const result = await client.testConnection();
+    res.json(result);
+  });
+
   app.post("/api/controllers/:id/test", requireAdmin, async (req, res) => {
     const controller = await storage.getController(req.params.id);
     if (!controller) return res.status(404).json({ message: "Controller not found" });

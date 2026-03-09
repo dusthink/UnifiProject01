@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil } from "lucide-react";
+import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -19,6 +19,20 @@ interface Controller {
   username: string;
   isVerified: boolean | null;
   lastConnectedAt: string | null;
+  isUnifiOs: boolean | null;
+  hardwareModel: string | null;
+  firmwareVersion: string | null;
+  hostname: string | null;
+  macAddress: string | null;
+  uptimeSeconds: number | null;
+}
+
+function formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  if (days > 0) return `${days}d ${hours}h`;
+  const mins = Math.floor((seconds % 3600) / 60);
+  return `${hours}h ${mins}m`;
 }
 
 function ControllerForm({
@@ -289,8 +303,21 @@ export default function ControllersPage() {
                       <Network className={`h-5 w-5 ${ctrl.isVerified ? "text-green-500" : "text-muted-foreground"}`} />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="font-semibold" data-testid={`text-controller-name-${ctrl.id}`}>{ctrl.name}</h3>
-                      <p className="text-sm text-muted-foreground truncate" data-testid={`text-controller-url-${ctrl.id}`}>{ctrl.url}</p>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold" data-testid={`text-controller-name-${ctrl.id}`}>{ctrl.name}</h3>
+                        {ctrl.hardwareModel && (
+                          <Badge variant="outline" className="text-xs" data-testid={`badge-model-${ctrl.id}`}>
+                            <Cpu className="h-3 w-3 mr-1" />
+                            {ctrl.hardwareModel}
+                          </Badge>
+                        )}
+                        {ctrl.isUnifiOs && (
+                          <Badge variant="outline" className="text-xs">UniFi OS</Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate" data-testid={`text-controller-url-${ctrl.id}`}>
+                        {ctrl.hostname ? `${ctrl.hostname} — ` : ""}{ctrl.url}
+                      </p>
                       <div className="flex items-center gap-3 mt-2 flex-wrap">
                         <Badge variant={ctrl.isVerified ? "default" : "secondary"} data-testid={`badge-controller-status-${ctrl.id}`}>
                           {ctrl.isVerified ? (
@@ -299,6 +326,22 @@ export default function ControllersPage() {
                             <><XCircle className="h-3 w-3 mr-1" /> Unverified</>
                           )}
                         </Badge>
+                        {ctrl.firmwareVersion && (
+                          <span className="text-xs text-muted-foreground" data-testid={`text-firmware-${ctrl.id}`}>
+                            v{ctrl.firmwareVersion}
+                          </span>
+                        )}
+                        {ctrl.uptimeSeconds && ctrl.uptimeSeconds > 0 && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-uptime-${ctrl.id}`}>
+                            <Clock className="h-3 w-3" />
+                            {formatUptime(ctrl.uptimeSeconds)}
+                          </span>
+                        )}
+                        {ctrl.macAddress && (
+                          <span className="text-xs text-muted-foreground font-mono" data-testid={`text-mac-${ctrl.id}`}>
+                            {ctrl.macAddress.replace(/(.{2})(?=.)/g, "$1:")}
+                          </span>
+                        )}
                         <span className="text-xs text-muted-foreground">
                           User: {ctrl.username}
                         </span>

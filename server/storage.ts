@@ -1,7 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers,
+  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers, sites,
   type User, type InsertUser,
   type Community, type InsertCommunity,
   type Building, type InsertBuilding,
@@ -10,6 +10,7 @@ import {
   type UnitDevicePort, type InsertUnitDevicePort,
   type InviteToken, type InsertInviteToken,
   type Controller, type InsertController,
+  type Site, type InsertSite,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -62,6 +63,11 @@ export interface IStorage {
   createController(data: InsertController): Promise<Controller>;
   updateController(id: string, data: Partial<InsertController>): Promise<Controller | undefined>;
   deleteController(id: string): Promise<void>;
+
+  getSitesByController(controllerId: string): Promise<Site[]>;
+  getSite(id: string): Promise<Site | undefined>;
+  createSite(data: InsertSite): Promise<Site>;
+  deleteSitesByController(controllerId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -258,7 +264,26 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteController(id: string): Promise<void> {
+    await db.delete(sites).where(eq(sites.controllerId, id));
     await db.delete(controllers).where(eq(controllers.id, id));
+  }
+
+  async getSitesByController(controllerId: string): Promise<Site[]> {
+    return db.select().from(sites).where(eq(sites.controllerId, controllerId));
+  }
+
+  async getSite(id: string): Promise<Site | undefined> {
+    const [site] = await db.select().from(sites).where(eq(sites.id, id));
+    return site;
+  }
+
+  async createSite(data: InsertSite): Promise<Site> {
+    const [site] = await db.insert(sites).values(data).returning();
+    return site;
+  }
+
+  async deleteSitesByController(controllerId: string): Promise<void> {
+    await db.delete(sites).where(eq(sites.controllerId, controllerId));
   }
 }
 

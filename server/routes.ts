@@ -428,10 +428,41 @@ export async function registerRoutes(
     const result = await client.testConnection();
 
     if (result.success) {
-      await storage.updateController(controller.id, {
+      const sysInfo = result.systemInfo || {};
+      const updateData: any = {
         isVerified: true,
         lastConnectedAt: new Date(),
-      } as any);
+        isUnifiOs: result.isUnifiOs || false,
+      };
+
+      if (result.isUnifiOs) {
+        updateData.hardwareModel = sysInfo.hardware?.shortname || sysInfo.hardware?.name || null;
+        updateData.firmwareVersion = sysInfo.firmwareVersion || sysInfo.version || null;
+        updateData.hostname = sysInfo.name || sysInfo.hostname || null;
+        updateData.macAddress = sysInfo.mac || sysInfo.hardware?.mac || null;
+        updateData.uptimeSeconds = sysInfo.uptime ? Math.floor(sysInfo.uptime) : null;
+      } else if (sysInfo) {
+        updateData.hardwareModel = sysInfo.ubnt_device_type || sysInfo.model || null;
+        updateData.firmwareVersion = sysInfo.version || null;
+        updateData.hostname = sysInfo.hostname || null;
+        updateData.uptimeSeconds = sysInfo.uptime ? Math.floor(Number(sysInfo.uptime)) : null;
+      }
+
+      await storage.updateController(controller.id, updateData);
+
+      if (result.sites && result.sites.length > 0) {
+        await storage.deleteSitesByController(controller.id);
+        for (const site of result.sites) {
+          await storage.createSite({
+            controllerId: controller.id,
+            unifiSiteId: site._id || site.name,
+            name: site.name,
+            description: site.desc || site.name,
+            deviceCount: site.device_count || site.num_sta || 0,
+            isDefault: site.attr_hidden_id === "default" || site.name === "default",
+          });
+        }
+      }
     } else {
       await storage.updateController(controller.id, { isVerified: false } as any);
     }
@@ -442,9 +473,13 @@ export async function registerRoutes(
   app.get("/api/controllers/:id/sites", requireAdmin, async (req, res) => {
     const controller = await storage.getController(req.params.id);
     if (!controller) return res.status(404).json({ message: "Controller not found" });
+    const dbSites = await storage.getSitesByController(controller.id);
+    if (dbSites.length > 0) {
+      return res.json(dbSites);
+    }
     const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
-    const sites = await client.getSites();
-    res.json(sites);
+    const liveSites = await client.getSites();
+    res.json(liveSites);
   });
 
   app.get("/api/controllers/:id/devices/:siteId", requireAdmin, async (req, res) => {

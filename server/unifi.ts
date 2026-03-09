@@ -167,14 +167,55 @@ export class UnifiClient {
     return false;
   }
 
-  async testConnection(): Promise<{ success: boolean; message: string; sites?: any[] }> {
+  async getSystemInfo(): Promise<any> {
+    try {
+      let result: any = {};
+
+      if (this.isUnifiOs) {
+        const response = await proxyFetch(`${this.baseUrl}/api/system`, {
+          headers: {
+            "Content-Type": "application/json",
+            ...(this.authCookie ? { Cookie: this.authCookie.value } : {}),
+            ...(this.csrfToken ? { "X-CSRF-Token": this.csrfToken } : {}),
+          },
+        });
+        if (response.ok) {
+          result = await response.json();
+        }
+      }
+
+      try {
+        const sysinfo = await this.request("/api/s/default/stat/sysinfo");
+        const networkInfo = sysinfo?.data?.[0] || {};
+        if (networkInfo.version) result.firmwareVersion = networkInfo.version;
+        if (networkInfo.uptime) result.uptime = Number(networkInfo.uptime);
+        if (networkInfo.hostname && !result.name) result.name = networkInfo.hostname;
+      } catch {}
+
+      return result;
+    } catch {
+      return {};
+    }
+  }
+
+  getIsUnifiOs(): boolean {
+    return this.isUnifiOs === true;
+  }
+
+  async testConnection(): Promise<{ success: boolean; message: string; sites?: any[]; systemInfo?: any; isUnifiOs?: boolean }> {
     try {
       const loggedIn = await this.login();
       if (!loggedIn) {
         return { success: false, message: "Failed to authenticate with UniFi controller. Check username/password." };
       }
-      const sites = await this.getSites();
-      return { success: true, message: `Connected (${this.isUnifiOs ? "UniFi OS" : "Classic"}). Found ${sites.length} site(s).`, sites };
+      const [sites, systemInfo] = await Promise.all([this.getSites(), this.getSystemInfo()]);
+      return {
+        success: true,
+        message: `Connected (${this.isUnifiOs ? "UniFi OS" : "Classic"}). Found ${sites.length} site(s).`,
+        sites,
+        systemInfo,
+        isUnifiOs: this.isUnifiOs === true,
+      };
     } catch (error: any) {
       return { success: false, message: `Connection failed: ${error.message}` };
     }

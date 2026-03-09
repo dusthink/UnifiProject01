@@ -15,6 +15,22 @@ export const controllers = pgTable("controllers", {
   password: text("password").notNull(),
   isVerified: boolean("is_verified").default(false),
   lastConnectedAt: timestamp("last_connected_at"),
+  isUnifiOs: boolean("is_unifi_os").default(false),
+  hardwareModel: text("hardware_model"),
+  firmwareVersion: text("firmware_version"),
+  hostname: text("hostname"),
+  macAddress: text("mac_address"),
+  uptimeSeconds: integer("uptime_seconds"),
+});
+
+export const sites = pgTable("sites", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  controllerId: varchar("controller_id").notNull(),
+  unifiSiteId: text("unifi_site_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  deviceCount: integer("device_count").default(0),
+  isDefault: boolean("is_default").default(false),
 });
 
 export const users = pgTable("users", {
@@ -86,8 +102,13 @@ export const inviteTokens = pgTable("invite_tokens", {
   createdBy: varchar("created_by").notNull(),
 });
 
+export const sitesRelations = relations(sites, ({ one }) => ({
+  controller: one(controllers, { fields: [sites.controllerId], references: [controllers.id] }),
+}));
+
 export const controllersRelations = relations(controllers, ({ many }) => ({
   communities: many(communities),
+  sites: many(sites),
 }));
 
 export const communitiesRelations = relations(communities, ({ one, many }) => ({
@@ -121,6 +142,7 @@ export const inviteTokensRelations = relations(inviteTokens, ({ one }) => ({
 }));
 
 export const insertControllerSchema = createInsertSchema(controllers).omit({ id: true });
+export const insertSiteSchema = createInsertSchema(sites).omit({ id: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertCommunitySchema = createInsertSchema(communities).omit({ id: true });
 export const insertBuildingSchema = createInsertSchema(buildings).omit({ id: true });
@@ -143,6 +165,8 @@ export type InsertUnitDevicePort = z.infer<typeof insertUnitDevicePortSchema>;
 export type UnitDevicePort = typeof unitDevicePorts.$inferSelect;
 export type InsertController = z.infer<typeof insertControllerSchema>;
 export type Controller = typeof controllers.$inferSelect;
+export type InsertSite = z.infer<typeof insertSiteSchema>;
+export type Site = typeof sites.$inferSelect;
 export type InsertInviteToken = z.infer<typeof insertInviteTokenSchema>;
 export type InviteToken = typeof inviteTokens.$inferSelect;
 

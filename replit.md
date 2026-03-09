@@ -6,12 +6,12 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 ## Architecture
 - **Frontend:** React + TypeScript with Vite, TanStack Query, wouter routing, shadcn/ui
 - **Backend:** Express.js with session-based auth (passport-local + passport-google-oauth20), PostgreSQL via Drizzle ORM
-- **UniFi Integration:** Class-based UnifiClient supporting multiple controllers with per-controller credentials and auth cookie caching
+- **UniFi Integration:** Class-based UnifiClient supporting both UniFi OS (UDM/UDR/Cloud Gateway) and classic controllers, with per-controller credentials and auth cookie caching
 
 ## Key Features
 - **Admin Portal:** Community/building/unit management, device management, VLAN provisioning, WiFi configuration (PPSK or individual SSID), tenant account creation
 - **Tenant Portal:** View WiFi settings, change WiFi password, view connected devices and usage statistics
-- **Multi-Controller Support:** Add/test/manage multiple UniFi controllers independently, assign controllers to communities
+- **Multi-Controller Support:** Add/edit/test/manage multiple UniFi controllers, auto-detect UniFi OS vs classic, show hardware model/firmware/uptime, persist discovered sites
 - **UniFi Integration:** Create VLANs, configure port profiles, manage WLANs, discover devices (all per-controller)
 
 ## Authentication
@@ -26,26 +26,31 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - Tenant registration page: `/register/tenant?token=xxx`
 
 ## Data Model
-- Controllers (id, name, url, username, password, isVerified, lastConnectedAt)
+- Controllers (id, name, url, username, password, isVerified, lastConnectedAt, isUnifiOs, hardwareModel, firmwareVersion, hostname, macAddress, uptimeSeconds)
+- Sites (id, controllerId, unifiSiteId, name, description, deviceCount, isDefault) — persisted from UniFi on successful test
 - Users (admin/tenant roles, optional Google ID, email, avatar)
 - InviteTokens (token, unitId, email, expiresAt, usedAt, createdBy)
-- Communities (has controllerId FK) → Buildings → Units (hierarchical)
+- Communities (has controllerId FK, unifiSiteId) → Buildings → Units (hierarchical)
 - Devices (UniFi switches/APs)
 - UnitDevicePorts (port-to-unit assignments)
 
 ## Multi-Controller Architecture
-- `controllers` table stores connection details for each UniFi controller
+- `controllers` table stores connection details + hardware info for each UniFi controller
+- `sites` table persists discovered UniFi sites linked to controllers
 - `communities.controllerId` links a community to its controller
-- `server/unifi.ts` exports `UnifiClient` class and `getUnifiClient(id, url, user, pass)` factory with per-controller cache
-- `clearClientCache(id)` invalidates cached client when credentials change
-- Provisioning/deprovisioning routes resolve controller from community → controller chain
+- `server/unifi.ts` exports `UnifiClient` class with auto-detection of UniFi OS vs classic controllers
+  - UniFi OS: login via `/api/auth/login`, API prefix `/proxy/network`, CSRF token handling
+  - Classic: login via `/api/login`, no API prefix
+  - `getUnifiClient(id, url, user, pass)` factory with per-controller cache
+  - `clearClientCache(id)` invalidates cached client when credentials change
+- On successful test: system info (model, firmware, hostname, MAC, uptime) saved to controller; sites synced to `sites` table
 - Controller passwords stored in plain text (future: encrypt at rest)
 
 ## Important Files
 - `shared/schema.ts` - Database schema and types
 - `server/routes.ts` - All API endpoints (controller CRUD, provisioning, tenant)
-- `server/storage.ts` - Database CRUD operations (includes controller storage)
-- `server/unifi.ts` - UniFi Controller API client (class-based, multi-controller)
+- `server/storage.ts` - Database CRUD operations (includes controller + site storage)
+- `server/unifi.ts` - UniFi Controller API client (class-based, multi-controller, proxy-aware)
 - `server/auth.ts` - Authentication setup (local + Google OAuth)
 - `client/src/App.tsx` - Main app with routing
 - `client/src/lib/auth.tsx` - Auth context provider
@@ -63,9 +68,9 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - `PROXY_PASSWORD` - Forward proxy auth password (secret)
 
 ## Proxy Configuration
-- All UniFi controller API requests are routed through an HTTP forward proxy (ProxyCheap)
-- Configured via `https-proxy-agent` in `server/unifi.ts`
-- Proxy is applied globally to all UnifiClient instances via a shared agent
+- All UniFi controller API requests are routed through an HTTP forward proxy via `node-fetch` + `https-proxy-agent`
+- Configured in `server/unifi.ts` with shared agent; credentials trimmed and URL-encoded
+- `NODE_TLS_REJECT_UNAUTHORIZED=0` set to accept self-signed certs on UniFi controllers
 - If proxy env vars are missing, connections fall back to direct (no proxy)
 
 ## Default Admin Credentials

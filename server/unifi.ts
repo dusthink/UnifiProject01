@@ -52,7 +52,6 @@ export class UnifiClient {
   }
 
   private async request(path: string, method: string = "GET", body?: any): Promise<any> {
-    const url = `${this.baseUrl}${this.apiPrefix()}${path}`;
     const headers: Record<string, string> = { "Content-Type": "application/json" };
 
     if (this.authCookie && Date.now() < this.authCookie.expires) {
@@ -63,6 +62,8 @@ export class UnifiClient {
         headers["Cookie"] = this.authCookie.value;
       }
     }
+
+    const url = `${this.baseUrl}${this.apiPrefix()}${path}`;
 
     if (this.csrfToken) {
       headers["X-CSRF-Token"] = this.csrfToken;
@@ -331,12 +332,8 @@ export class UnifiClient {
   }
 
   async getNetworks(siteId: string = "default"): Promise<any[]> {
-    try {
-      const data = await this.request(`/api/s/${siteId}/rest/networkconf`);
-      return data?.data || [];
-    } catch {
-      return [];
-    }
+    const data = await this.request(`/api/s/${siteId}/rest/networkconf`);
+    return data?.data || [];
   }
 
   async getWlans(siteId: string = "default"): Promise<any[]> {

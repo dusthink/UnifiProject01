@@ -581,12 +581,27 @@ export async function registerRoutes(
       }
 
       if (liveFetchSucceeded) {
+        const allDbByUnifiId = new Map(dbNetworks.filter(n => n.unifiNetworkId).map(n => [n.unifiNetworkId, n]));
         const siteDiscovered = dbNetworks.filter(n => !n.isManaged && n.siteId === siteId);
-        const dbByUnifiId = new Map(siteDiscovered.filter(n => n.unifiNetworkId).map(n => [n.unifiNetworkId, n]));
         const liveByUnifiId = new Map(liveNetworks.map(n => [n._id, n]));
 
         for (const live of liveNetworks) {
-          if (!dbByUnifiId.has(live._id)) {
+          if (allDbByUnifiId.has(live._id)) {
+            const existing = allDbByUnifiId.get(live._id)!;
+            if (!existing.isManaged) {
+              const vlan = live.vlan_enabled ? (live.vlan || 0) : 0;
+              if (existing.name !== live.name || existing.vlanId !== vlan || existing.ipSubnet !== (live.ip_subnet || null)) {
+                await storage.updateNetwork(existing.id, {
+                  name: live.name || existing.name,
+                  vlanId: vlan,
+                  ipSubnet: live.ip_subnet || null,
+                  dhcpEnabled: live.dhcpd_enabled ?? existing.dhcpEnabled,
+                  dhcpStart: live.dhcpd_start || null,
+                  dhcpStop: live.dhcpd_stop || null,
+                });
+              }
+            }
+          } else {
             const vlan = live.vlan_enabled ? (live.vlan || 0) : 0;
             await storage.createNetwork({
               controllerId,
@@ -601,19 +616,6 @@ export async function registerRoutes(
               siteId,
               isManaged: false,
             });
-          } else {
-            const existing = dbByUnifiId.get(live._id)!;
-            const vlan = live.vlan_enabled ? (live.vlan || 0) : 0;
-            if (existing.name !== live.name || existing.vlanId !== vlan || existing.ipSubnet !== (live.ip_subnet || null)) {
-              await storage.updateNetwork(existing.id, {
-                name: live.name || existing.name,
-                vlanId: vlan,
-                ipSubnet: live.ip_subnet || null,
-                dhcpEnabled: live.dhcpd_enabled ?? existing.dhcpEnabled,
-                dhcpStart: live.dhcpd_start || null,
-                dhcpStop: live.dhcpd_stop || null,
-              });
-            }
           }
         }
 

@@ -7,6 +7,16 @@ import { relations } from "drizzle-orm";
 export const roleEnum = pgEnum("role", ["admin", "tenant"]);
 export const wifiModeEnum = pgEnum("wifi_mode", ["ppsk", "individual"]);
 
+export const controllers = pgTable("controllers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  username: text("username").notNull(),
+  password: text("password").notNull(),
+  isVerified: boolean("is_verified").default(false),
+  lastConnectedAt: timestamp("last_connected_at"),
+});
+
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
@@ -23,6 +33,7 @@ export const communities = pgTable("communities", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   address: text("address"),
+  controllerId: varchar("controller_id"),
   unifiSiteId: text("unifi_site_id").default("default"),
 });
 
@@ -75,7 +86,12 @@ export const inviteTokens = pgTable("invite_tokens", {
   createdBy: varchar("created_by").notNull(),
 });
 
-export const communitiesRelations = relations(communities, ({ many }) => ({
+export const controllersRelations = relations(controllers, ({ many }) => ({
+  communities: many(communities),
+}));
+
+export const communitiesRelations = relations(communities, ({ one, many }) => ({
+  controller: one(controllers, { fields: [communities.controllerId], references: [controllers.id] }),
   buildings: many(buildings),
 }));
 
@@ -104,6 +120,7 @@ export const inviteTokensRelations = relations(inviteTokens, ({ one }) => ({
   unit: one(units, { fields: [inviteTokens.unitId], references: [units.id] }),
 }));
 
+export const insertControllerSchema = createInsertSchema(controllers).omit({ id: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertCommunitySchema = createInsertSchema(communities).omit({ id: true });
 export const insertBuildingSchema = createInsertSchema(buildings).omit({ id: true });
@@ -124,6 +141,8 @@ export type InsertDevice = z.infer<typeof insertDeviceSchema>;
 export type Device = typeof devices.$inferSelect;
 export type InsertUnitDevicePort = z.infer<typeof insertUnitDevicePortSchema>;
 export type UnitDevicePort = typeof unitDevicePorts.$inferSelect;
+export type InsertController = z.infer<typeof insertControllerSchema>;
+export type Controller = typeof controllers.$inferSelect;
 export type InsertInviteToken = z.infer<typeof insertInviteTokenSchema>;
 export type InviteToken = typeof inviteTokens.$inferSelect;
 

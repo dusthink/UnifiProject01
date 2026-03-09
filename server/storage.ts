@@ -1,7 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens,
+  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers,
   type User, type InsertUser,
   type Community, type InsertCommunity,
   type Building, type InsertBuilding,
@@ -9,6 +9,7 @@ import {
   type Device, type InsertDevice,
   type UnitDevicePort, type InsertUnitDevicePort,
   type InviteToken, type InsertInviteToken,
+  type Controller, type InsertController,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -55,6 +56,12 @@ export interface IStorage {
   markInviteTokenUsed(id: string): Promise<void>;
   getInviteTokensByUnit(unitId: string): Promise<InviteToken[]>;
   getPendingInvites(): Promise<InviteToken[]>;
+
+  getControllers(): Promise<Controller[]>;
+  getController(id: string): Promise<Controller | undefined>;
+  createController(data: InsertController): Promise<Controller>;
+  updateController(id: string, data: Partial<InsertController>): Promise<Controller | undefined>;
+  deleteController(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -229,6 +236,29 @@ export class DatabaseStorage implements IStorage {
   async getPendingInvites(): Promise<InviteToken[]> {
     const { isNull } = await import("drizzle-orm");
     return db.select().from(inviteTokens).where(isNull(inviteTokens.usedAt));
+  }
+
+  async getControllers(): Promise<Controller[]> {
+    return db.select().from(controllers);
+  }
+
+  async getController(id: string): Promise<Controller | undefined> {
+    const [controller] = await db.select().from(controllers).where(eq(controllers.id, id));
+    return controller;
+  }
+
+  async createController(data: InsertController): Promise<Controller> {
+    const [controller] = await db.insert(controllers).values(data).returning();
+    return controller;
+  }
+
+  async updateController(id: string, data: Partial<InsertController>): Promise<Controller | undefined> {
+    const [controller] = await db.update(controllers).set(data).where(eq(controllers.id, id)).returning();
+    return controller;
+  }
+
+  async deleteController(id: string): Promise<void> {
+    await db.delete(controllers).where(eq(controllers.id, id));
   }
 }
 

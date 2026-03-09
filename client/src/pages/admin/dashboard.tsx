@@ -1,8 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Building2, Home, Router, Users, Wifi, Activity, CheckCircle2, XCircle } from "lucide-react";
+import { Building2, Home, Router, Users, Wifi, Activity, CheckCircle2, XCircle, Network } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Community, Device } from "@shared/schema";
+
+interface ControllerSummary {
+  id: string;
+  name: string;
+  url: string;
+  isVerified: boolean | null;
+  lastConnectedAt: string | null;
+}
 
 function StatCard({ icon: Icon, label, value, sublabel, color }: {
   icon: any; label: string; value: string | number; sublabel?: string; color: string;
@@ -34,10 +43,8 @@ export default function AdminDashboard() {
     queryKey: ["/api/devices"],
   });
 
-  const { data: unifiStatus } = useQuery<{ success: boolean; message: string }>({
-    queryKey: ["/api/unifi/test"],
-    staleTime: 60000,
-    retry: false,
+  const { data: controllers } = useQuery<ControllerSummary[]>({
+    queryKey: ["/api/controllers"],
   });
 
   if (commLoading || devLoading) {
@@ -77,11 +84,11 @@ export default function AdminDashboard() {
           color="bg-chart-2/10 text-chart-2"
         />
         <StatCard
-          icon={Wifi}
-          label="Controller"
-          value={unifiStatus?.success ? "Connected" : "Offline"}
-          sublabel={unifiStatus?.message}
-          color={unifiStatus?.success ? "bg-status-online/10 text-status-online" : "bg-destructive/10 text-destructive"}
+          icon={Network}
+          label="Controllers"
+          value={controllers?.length || 0}
+          sublabel={`${controllers?.filter(c => c.isVerified).length || 0} verified`}
+          color="bg-chart-3/10 text-chart-3"
         />
         <StatCard
           icon={Activity}
@@ -124,34 +131,37 @@ export default function AdminDashboard() {
 
         <Card>
           <CardHeader className="pb-3">
-            <h3 className="font-semibold">Controller Status</h3>
+            <h3 className="font-semibold">Controllers</h3>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                {unifiStatus?.success ? (
-                  <CheckCircle2 className="h-5 w-5 text-status-online" />
-                ) : (
-                  <XCircle className="h-5 w-5 text-destructive" />
-                )}
-                <div>
-                  <p className="text-sm font-medium">
-                    {unifiStatus?.success ? "Connected to UniFi Controller" : "Controller Unreachable"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{unifiStatus?.message}</p>
-                </div>
+            {!controllers?.length ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Network className="h-10 w-10 mx-auto mb-3 opacity-40" />
+                <p className="text-sm">No controllers added</p>
+                <p className="text-xs mt-1">Add a UniFi controller to get started</p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-md bg-accent/50">
-                  <p className="text-xs text-muted-foreground">Registered Devices</p>
-                  <p className="text-lg font-semibold mt-1">{devices?.length || 0}</p>
-                </div>
-                <div className="p-3 rounded-md bg-accent/50">
-                  <p className="text-xs text-muted-foreground">Communities</p>
-                  <p className="text-lg font-semibold mt-1">{communities?.length || 0}</p>
-                </div>
+            ) : (
+              <div className="space-y-3">
+                {controllers.slice(0, 5).map((ctrl) => (
+                  <div key={ctrl.id} className="flex items-center gap-3 p-2 rounded-md" data-testid={`card-controller-dash-${ctrl.id}`}>
+                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${ctrl.isVerified ? "bg-green-500/10" : "bg-accent"}`}>
+                      {ctrl.isVerified ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{ctrl.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{ctrl.url}</p>
+                    </div>
+                    <Badge variant={ctrl.isVerified ? "default" : "secondary"} className="shrink-0 ml-auto text-xs">
+                      {ctrl.isVerified ? "Verified" : "Unverified"}
+                    </Badge>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       </div>

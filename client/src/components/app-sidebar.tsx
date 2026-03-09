@@ -20,7 +20,7 @@ const adminItems = [
   { title: "Communities", url: "/admin/communities", icon: Building2 },
   { title: "Devices", url: "/admin/devices", icon: Router },
   { title: "Tenants", url: "/admin/tenants", icon: Users },
-  { title: "UniFi Controller", url: "/admin/unifi", icon: Network },
+  { title: "Controllers", url: "/admin/controllers", icon: Network },
 ];
 
 export function AppSidebar() {

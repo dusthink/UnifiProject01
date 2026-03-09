@@ -18,7 +18,7 @@ import CommunityDetailPage from "@/pages/admin/community-detail";
 import BuildingDetailPage from "@/pages/admin/building-detail";
 import DevicesPage from "@/pages/admin/devices";
 import TenantsPage from "@/pages/admin/tenants";
-import UniFiPage from "@/pages/admin/unifi";
+import ControllersPage from "@/pages/admin/controllers";
 import TenantPortal from "@/pages/tenant/portal";
 import TenantRegisterPage from "@/pages/tenant/register";
 
@@ -47,7 +47,7 @@ function AdminRouter() {
       </Route>
       <Route path="/admin/devices" component={DevicesPage} />
       <Route path="/admin/tenants" component={TenantsPage} />
-      <Route path="/admin/unifi" component={UniFiPage} />
+      <Route path="/admin/controllers" component={ControllersPage} />
       <Route component={NotFound} />
     </Switch>
   );

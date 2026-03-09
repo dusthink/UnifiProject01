@@ -1,16 +1,25 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Building2, Plus, MapPin, Trash2, ChevronRight, Network } from "lucide-react";
+import { Building2, Plus, MapPin, Trash2, ChevronRight, Network, CheckCircle2, XCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Community } from "@shared/schema";
+
+interface ControllerSummary {
+  id: string;
+  name: string;
+  url: string;
+  isVerified: boolean | null;
+}
 
 export default function CommunitiesPage() {
   const [, navigate] = useLocation();
@@ -18,14 +27,33 @@ export default function CommunitiesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const [controllerId, setControllerId] = useState("");
   const [siteId, setSiteId] = useState("default");
 
   const { data: communities, isLoading } = useQuery<Community[]>({
     queryKey: ["/api/communities"],
   });
 
+  const { data: controllers } = useQuery<ControllerSummary[]>({
+    queryKey: ["/api/controllers"],
+  });
+
+  const { data: sites } = useQuery<any[]>({
+    queryKey: ["/api/controllers", controllerId, "sites"],
+    queryFn: async () => {
+      if (!controllerId) return [];
+      const res = await fetch(`/api/controllers/${controllerId}/sites`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!controllerId,
+  });
+
+  useEffect(() => {
+    setSiteId("default");
+  }, [controllerId]);
+
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; address: string; unifiSiteId: string }) => {
+    mutationFn: async (data: { name: string; address: string; controllerId: string | null; unifiSiteId: string }) => {
       const res = await apiRequest("POST", "/api/communities", data);
       return res.json();
     },
@@ -34,6 +62,7 @@ export default function CommunitiesPage() {
       setDialogOpen(false);
       setName("");
       setAddress("");
+      setControllerId("");
       setSiteId("default");
       toast({ title: "Community created", description: "New community has been added." });
     },
@@ -84,7 +113,12 @@ export default function CommunitiesPage() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                createMutation.mutate({ name, address, unifiSiteId: siteId });
+                createMutation.mutate({
+                  name,
+                  address,
+                  controllerId: controllerId || null,
+                  unifiSiteId: siteId,
+                });
               }}
               className="space-y-4"
             >
@@ -110,16 +144,58 @@ export default function CommunitiesPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="comm-site">UniFi Site ID</Label>
-                <Input
-                  id="comm-site"
-                  value={siteId}
-                  onChange={(e) => setSiteId(e.target.value)}
-                  placeholder="default"
-                  data-testid="input-community-site"
-                />
-                <p className="text-xs text-muted-foreground">The UniFi site name for this community</p>
+                <Label>Controller</Label>
+                <Select value={controllerId} onValueChange={setControllerId}>
+                  <SelectTrigger data-testid="select-community-controller">
+                    <SelectValue placeholder="Select a controller (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {controllers?.map((ctrl) => (
+                      <SelectItem key={ctrl.id} value={ctrl.id} data-testid={`option-controller-${ctrl.id}`}>
+                        <span className="flex items-center gap-2">
+                          {ctrl.name}
+                          {ctrl.isVerified ? (
+                            <CheckCircle2 className="h-3 w-3 text-green-500 inline" />
+                          ) : (
+                            <XCircle className="h-3 w-3 text-muted-foreground inline" />
+                          )}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Assign a UniFi controller to manage this community's network</p>
               </div>
+              {controllerId && sites && sites.length > 0 && (
+                <div className="space-y-2">
+                  <Label>UniFi Site</Label>
+                  <Select value={siteId} onValueChange={setSiteId}>
+                    <SelectTrigger data-testid="select-community-site">
+                      <SelectValue placeholder="Select a site" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sites.map((site: any) => (
+                        <SelectItem key={site.name} value={site.name} data-testid={`option-site-${site.name}`}>
+                          {site.desc || site.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {(!controllerId || !sites?.length) && (
+                <div className="space-y-2">
+                  <Label htmlFor="comm-site">UniFi Site ID</Label>
+                  <Input
+                    id="comm-site"
+                    value={siteId}
+                    onChange={(e) => setSiteId(e.target.value)}
+                    placeholder="default"
+                    data-testid="input-community-site"
+                  />
+                  <p className="text-xs text-muted-foreground">The UniFi site name for this community</p>
+                </div>
+              )}
               <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-community">
                 {createMutation.isPending ? "Creating..." : "Create Community"}
               </Button>
@@ -167,9 +243,14 @@ export default function CommunitiesPage() {
                   </div>
                   <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
                 </div>
-                <div className="flex items-center gap-2 mt-4 pt-3 border-t">
+                <div className="flex items-center gap-2 mt-4 pt-3 border-t flex-wrap">
                   <Network className="h-3.5 w-3.5 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Site: {community.unifiSiteId || "default"}</span>
+                  {community.controllerId && (
+                    <Badge variant="outline" className="text-xs">
+                      {controllers?.find((c) => c.id === community.controllerId)?.name || "Controller"}
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex justify-end mt-2">
                   <Button

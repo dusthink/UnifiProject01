@@ -14,6 +14,13 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Device, Community } from "@shared/schema";
 
+interface ControllerSummary {
+  id: string;
+  name: string;
+  url: string;
+  isVerified: boolean | null;
+}
+
 export default function DevicesPage() {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -23,6 +30,8 @@ export default function DevicesPage() {
   const [unifiDeviceId, setUnifiDeviceId] = useState("");
   const [communityId, setCommunityId] = useState("");
   const [buildingId, setBuildingId] = useState("");
+  const [discoverControllerId, setDiscoverControllerId] = useState("");
+  const [discoverSiteId, setDiscoverSiteId] = useState("default");
 
   const { data: devices, isLoading } = useQuery<Device[]>({
     queryKey: ["/api/devices"],
@@ -30,6 +39,30 @@ export default function DevicesPage() {
 
   const { data: communities } = useQuery<Community[]>({
     queryKey: ["/api/communities"],
+  });
+
+  const { data: controllers } = useQuery<ControllerSummary[]>({
+    queryKey: ["/api/controllers"],
+  });
+
+  const { data: controllerSites } = useQuery<any[]>({
+    queryKey: ["/api/controllers", discoverControllerId, "sites"],
+    queryFn: async () => {
+      if (!discoverControllerId) return [];
+      const res = await fetch(`/api/controllers/${discoverControllerId}/sites`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!discoverControllerId,
+  });
+
+  const { data: unifiDevices, refetch: refetchUnifi, isFetching: fetchingUnifi } = useQuery<any[]>({
+    queryKey: ["/api/controllers", discoverControllerId, "devices", discoverSiteId],
+    queryFn: async () => {
+      if (!discoverControllerId || !discoverSiteId) return [];
+      const res = await fetch(`/api/controllers/${discoverControllerId}/devices/${discoverSiteId}`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: false,
   });
 
   const createMutation = useMutation({
@@ -54,11 +87,6 @@ export default function DevicesPage() {
     },
   });
 
-  const { data: unifiDevices, refetch: refetchUnifi, isFetching: fetchingUnifi } = useQuery<any[]>({
-    queryKey: ["/api/unifi/devices/default"],
-    enabled: false,
-  });
-
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -68,6 +96,8 @@ export default function DevicesPage() {
     );
   }
 
+  const verifiedControllers = controllers?.filter(c => c.isVerified) || [];
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -75,109 +105,140 @@ export default function DevicesPage() {
           <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Devices</h1>
           <p className="text-muted-foreground text-sm mt-1">Manage UniFi network devices</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => refetchUnifi()}
-            disabled={fetchingUnifi}
-            data-testid="button-discover-devices"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${fetchingUnifi ? "animate-spin" : ""}`} />
-            Discover from Controller
-          </Button>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-add-device">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Device
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button data-testid="button-add-device">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Device
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add Device</DialogTitle>
+            </DialogHeader>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                createMutation.mutate({
+                  name,
+                  macAddress,
+                  model: model || null,
+                  unifiDeviceId: unifiDeviceId || null,
+                  communityId: communityId || null,
+                  buildingId: buildingId || null,
+                });
+              }}
+              className="space-y-4"
+            >
+              <div className="space-y-2">
+                <Label>Device Name</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Switch-Bldg-A" required data-testid="input-device-name" />
+              </div>
+              <div className="space-y-2">
+                <Label>MAC Address</Label>
+                <Input value={macAddress} onChange={(e) => setMacAddress(e.target.value)} placeholder="aa:bb:cc:dd:ee:ff" required data-testid="input-device-mac" />
+              </div>
+              <div className="space-y-2">
+                <Label>Model</Label>
+                <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g., USW-24-POE" data-testid="input-device-model" />
+              </div>
+              <div className="space-y-2">
+                <Label>UniFi Device ID</Label>
+                <Input value={unifiDeviceId} onChange={(e) => setUnifiDeviceId(e.target.value)} placeholder="From UniFi controller" data-testid="input-device-unifi-id" />
+              </div>
+              {communities && communities.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Community</Label>
+                  <Select value={communityId} onValueChange={setCommunityId}>
+                    <SelectTrigger data-testid="select-device-community">
+                      <SelectValue placeholder="Select community" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {communities.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-device">
+                {createMutation.isPending ? "Adding..." : "Add Device"}
               </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add Device</DialogTitle>
-              </DialogHeader>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  createMutation.mutate({
-                    name,
-                    macAddress,
-                    model: model || null,
-                    unifiDeviceId: unifiDeviceId || null,
-                    communityId: communityId || null,
-                    buildingId: buildingId || null,
-                  });
-                }}
-                className="space-y-4"
-              >
-                <div className="space-y-2">
-                  <Label>Device Name</Label>
-                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Switch-Bldg-A" required data-testid="input-device-name" />
-                </div>
-                <div className="space-y-2">
-                  <Label>MAC Address</Label>
-                  <Input value={macAddress} onChange={(e) => setMacAddress(e.target.value)} placeholder="aa:bb:cc:dd:ee:ff" required data-testid="input-device-mac" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Model</Label>
-                  <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g., USW-24-POE" data-testid="input-device-model" />
-                </div>
-                <div className="space-y-2">
-                  <Label>UniFi Device ID</Label>
-                  <Input value={unifiDeviceId} onChange={(e) => setUnifiDeviceId(e.target.value)} placeholder="From UniFi controller" data-testid="input-device-unifi-id" />
-                </div>
-                {communities && communities.length > 0 && (
-                  <div className="space-y-2">
-                    <Label>Community</Label>
-                    <Select value={communityId} onValueChange={setCommunityId}>
-                      <SelectTrigger data-testid="select-device-community">
-                        <SelectValue placeholder="Select community" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {communities.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-device">
-                  {createMutation.isPending ? "Adding..." : "Add Device"}
-                </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
-      {unifiDevices && unifiDevices.length > 0 && (
+      {verifiedControllers.length > 0 && (
         <Card>
-          <CardContent className="p-4">
-            <h3 className="font-semibold mb-3">Discovered UniFi Devices</h3>
-            <div className="space-y-2">
-              {unifiDevices.map((d: any) => (
-                <div key={d._id} className="flex items-center justify-between gap-2 p-2 rounded-md bg-accent/50">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{d.name || d.model}</p>
-                    <p className="text-xs text-muted-foreground">{d.mac} - {d.model}</p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => {
-                      setName(d.name || d.model);
-                      setMacAddress(d.mac);
-                      setModel(d.model);
-                      setUnifiDeviceId(d._id);
-                      setDialogOpen(true);
-                    }}
-                    data-testid={`button-import-device-${d._id}`}
-                  >
-                    Import
-                  </Button>
+          <CardContent className="p-4 space-y-4">
+            <h3 className="font-semibold">Discover Devices from Controller</h3>
+            <div className="flex items-end gap-3 flex-wrap">
+              <div className="space-y-1.5 min-w-[180px]">
+                <Label className="text-xs">Controller</Label>
+                <Select value={discoverControllerId} onValueChange={(v) => { setDiscoverControllerId(v); setDiscoverSiteId("default"); }}>
+                  <SelectTrigger data-testid="select-discover-controller">
+                    <SelectValue placeholder="Select controller" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {verifiedControllers.map((ctrl) => (
+                      <SelectItem key={ctrl.id} value={ctrl.id}>{ctrl.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {discoverControllerId && controllerSites && controllerSites.length > 0 && (
+                <div className="space-y-1.5 min-w-[140px]">
+                  <Label className="text-xs">Site</Label>
+                  <Select value={discoverSiteId} onValueChange={setDiscoverSiteId}>
+                    <SelectTrigger data-testid="select-discover-site">
+                      <SelectValue placeholder="Select site" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {controllerSites.map((site: any) => (
+                        <SelectItem key={site.name} value={site.name}>{site.desc || site.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              ))}
+              )}
+              <Button
+                variant="secondary"
+                onClick={() => refetchUnifi()}
+                disabled={fetchingUnifi || !discoverControllerId}
+                data-testid="button-discover-devices"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${fetchingUnifi ? "animate-spin" : ""}`} />
+                Discover
+              </Button>
             </div>
+
+            {unifiDevices && unifiDevices.length > 0 && (
+              <div className="space-y-2 pt-2 border-t">
+                {unifiDevices.map((d: any) => (
+                  <div key={d._id} className="flex items-center justify-between gap-2 p-2 rounded-md bg-accent/50">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{d.name || d.model}</p>
+                      <p className="text-xs text-muted-foreground">{d.mac} - {d.model}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setName(d.name || d.model);
+                        setMacAddress(d.mac);
+                        setModel(d.model);
+                        setUnifiDeviceId(d._id);
+                        setDialogOpen(true);
+                      }}
+                      data-testid={`button-import-device-${d._id}`}
+                    >
+                      Import
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

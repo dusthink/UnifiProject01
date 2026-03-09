@@ -7,11 +7,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Plus, ArrowLeft, Trash2, ChevronRight, Home } from "lucide-react";
+import { Building2, Plus, ArrowLeft, Trash2, ChevronRight, Home, Network } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Community, Building } from "@shared/schema";
+
+interface ControllerInfo {
+  id: string;
+  name: string;
+  url: string;
+  isVerified: boolean | null;
+}
 
 export default function CommunityDetailPage({ id }: { id: string }) {
   const [, navigate] = useLocation();
@@ -22,6 +29,16 @@ export default function CommunityDetailPage({ id }: { id: string }) {
 
   const { data: community, isLoading: commLoading } = useQuery<Community>({
     queryKey: ["/api/communities", id],
+  });
+
+  const { data: controller } = useQuery<ControllerInfo>({
+    queryKey: ["/api/controllers", community?.controllerId],
+    queryFn: async () => {
+      if (!community?.controllerId) return null;
+      const res = await fetch(`/api/controllers/${community.controllerId}`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!community?.controllerId,
   });
 
   const { data: buildings, isLoading: bldgLoading } = useQuery<Building[]>({
@@ -84,9 +101,17 @@ export default function CommunityDetailPage({ id }: { id: string }) {
       </div>
 
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="secondary">{buildings?.length || 0} buildings</Badge>
           <Badge variant="outline">Site: {community?.unifiSiteId || "default"}</Badge>
+          {controller ? (
+            <Badge variant="outline" data-testid="badge-controller">
+              <Network className="h-3 w-3 mr-1" />
+              {controller.name}
+            </Badge>
+          ) : (
+            <Badge variant="secondary" data-testid="badge-no-controller">No controller</Badge>
+          )}
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>

@@ -2,10 +2,19 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireAdmin, hashPassword, comparePasswords } from "./auth";
-import * as unifi from "./unifi";
+import { UnifiClient, getUnifiClient, clearClientCache } from "./unifi";
 import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDeviceSchema, insertUnitDevicePortSchema, loginSchema, registerSchema } from "@shared/schema";
 import passport from "passport";
 import { randomBytes } from "crypto";
+
+async function getClientForCommunity(communityId: string): Promise<{ client: UnifiClient; siteId: string } | null> {
+  const community = await storage.getCommunity(communityId);
+  if (!community?.controllerId) return null;
+  const controller = await storage.getController(community.controllerId);
+  if (!controller) return null;
+  const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+  return { client, siteId: community.unifiSiteId || "default" };
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -358,6 +367,92 @@ export async function registerRoutes(
     res.status(204).end();
   });
 
+  app.get("/api/controllers", requireAdmin, async (req, res) => {
+    const result = await storage.getControllers();
+    const safe = result.map(({ password, ...rest }) => rest);
+    res.json(safe);
+  });
+
+  app.get("/api/controllers/:id", requireAdmin, async (req, res) => {
+    const controller = await storage.getController(req.params.id);
+    if (!controller) return res.status(404).json({ message: "Controller not found" });
+    const { password, ...safe } = controller;
+    res.json(safe);
+  });
+
+  app.post("/api/controllers", requireAdmin, async (req, res) => {
+    const { name, url, username, password } = req.body;
+    if (!name || !url || !username || !password) {
+      return res.status(400).json({ message: "Name, URL, username, and password are required" });
+    }
+    const controller = await storage.createController({ name, url, username, password });
+    const { password: _, ...safe } = controller;
+    res.status(201).json(safe);
+  });
+
+  app.patch("/api/controllers/:id", requireAdmin, async (req, res) => {
+    const controller = await storage.updateController(req.params.id, req.body);
+    if (!controller) return res.status(404).json({ message: "Controller not found" });
+    clearClientCache(req.params.id);
+    const { password, ...safe } = controller;
+    res.json(safe);
+  });
+
+  app.delete("/api/controllers/:id", requireAdmin, async (req, res) => {
+    clearClientCache(req.params.id);
+    const allCommunities = await storage.getCommunities();
+    for (const comm of allCommunities) {
+      if (comm.controllerId === req.params.id) {
+        await storage.updateCommunity(comm.id, { controllerId: null });
+      }
+    }
+    await storage.deleteController(req.params.id);
+    res.status(204).end();
+  });
+
+  app.post("/api/controllers/:id/test", requireAdmin, async (req, res) => {
+    const controller = await storage.getController(req.params.id);
+    if (!controller) return res.status(404).json({ message: "Controller not found" });
+
+    const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+    const result = await client.testConnection();
+
+    if (result.success) {
+      await storage.updateController(controller.id, {
+        isVerified: true,
+        lastConnectedAt: new Date(),
+      } as any);
+    } else {
+      await storage.updateController(controller.id, { isVerified: false } as any);
+    }
+
+    res.json(result);
+  });
+
+  app.get("/api/controllers/:id/sites", requireAdmin, async (req, res) => {
+    const controller = await storage.getController(req.params.id);
+    if (!controller) return res.status(404).json({ message: "Controller not found" });
+    const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+    const sites = await client.getSites();
+    res.json(sites);
+  });
+
+  app.get("/api/controllers/:id/devices/:siteId", requireAdmin, async (req, res) => {
+    const controller = await storage.getController(req.params.id);
+    if (!controller) return res.status(404).json({ message: "Controller not found" });
+    const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+    const devices = await client.getDevices(req.params.siteId);
+    res.json(devices);
+  });
+
+  app.get("/api/controllers/:id/networks/:siteId", requireAdmin, async (req, res) => {
+    const controller = await storage.getController(req.params.id);
+    if (!controller) return res.status(404).json({ message: "Controller not found" });
+    const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+    const networks = await client.getNetworks(req.params.siteId);
+    res.json(networks);
+  });
+
   app.post("/api/units/:id/provision", requireAdmin, async (req, res) => {
     try {
       const unit = await storage.getUnit(req.params.id);
@@ -366,13 +461,13 @@ export async function registerRoutes(
       const building = await storage.getBuilding(unit.buildingId);
       if (!building) return res.status(404).json({ message: "Building not found" });
 
-      const community = await storage.getCommunity(building.communityId);
-      if (!community) return res.status(404).json({ message: "Community not found" });
+      const ctx = await getClientForCommunity(building.communityId);
+      if (!ctx) return res.status(400).json({ message: "No controller assigned to this community" });
 
-      const siteId = community.unifiSiteId || "default";
+      const { client, siteId } = ctx;
       const vlanId = unit.vlanId || 100;
 
-      const networkResult = await unifi.createNetwork(
+      const networkResult = await client.createNetwork(
         siteId,
         `Unit-${unit.unitNumber}-VLAN${vlanId}`,
         vlanId
@@ -386,7 +481,7 @@ export async function registerRoutes(
       let wlanId = null;
 
       if (unit.wifiMode === "individual" && unit.wifiSsid && unit.wifiPassword) {
-        const wlanResult = await unifi.createWlan(
+        const wlanResult = await client.createWlan(
           siteId,
           unit.wifiSsid,
           unit.wifiPassword,
@@ -394,7 +489,7 @@ export async function registerRoutes(
         );
         wlanId = wlanResult?.data?.[0]?._id;
         if (!wlanId) {
-          await unifi.deleteNetwork(siteId, networkId).catch(() => {});
+          await client.deleteNetwork(siteId, networkId).catch(() => {});
           return res.status(500).json({ message: "Failed to create WLAN on UniFi controller - rolling back network" });
         }
       }
@@ -403,7 +498,7 @@ export async function registerRoutes(
       for (const assignment of portAssignments) {
         const device = await storage.getDevice(assignment.deviceId);
         if (device?.unifiDeviceId) {
-          await unifi.setPortProfile(siteId, device.unifiDeviceId, assignment.portNumber, vlanId);
+          await client.setPortProfile(siteId, device.unifiDeviceId, assignment.portNumber, vlanId);
         }
       }
 
@@ -427,16 +522,16 @@ export async function registerRoutes(
       const building = await storage.getBuilding(unit.buildingId);
       if (!building) return res.status(404).json({ message: "Building not found" });
 
-      const community = await storage.getCommunity(building.communityId);
-      if (!community) return res.status(404).json({ message: "Community not found" });
+      const ctx = await getClientForCommunity(building.communityId);
+      if (!ctx) return res.status(400).json({ message: "No controller assigned to this community" });
 
-      const siteId = community.unifiSiteId || "default";
+      const { client, siteId } = ctx;
 
       if (unit.unifiWlanId) {
-        await unifi.deleteWlan(siteId, unit.unifiWlanId);
+        await client.deleteWlan(siteId, unit.unifiWlanId);
       }
       if (unit.unifiNetworkId) {
-        await unifi.deleteNetwork(siteId, unit.unifiNetworkId);
+        await client.deleteNetwork(siteId, unit.unifiNetworkId);
       }
 
       const updated = await storage.updateUnit(unit.id, {
@@ -449,26 +544,6 @@ export async function registerRoutes(
     } catch (error: any) {
       res.status(500).json({ message: `Deprovisioning failed: ${error.message}` });
     }
-  });
-
-  app.get("/api/unifi/test", requireAdmin, async (req, res) => {
-    const result = await unifi.testConnection();
-    res.json(result);
-  });
-
-  app.get("/api/unifi/sites", requireAdmin, async (req, res) => {
-    const sites = await unifi.getSites();
-    res.json(sites);
-  });
-
-  app.get("/api/unifi/devices/:siteId", requireAdmin, async (req, res) => {
-    const devices = await unifi.getDevices(req.params.siteId);
-    res.json(devices);
-  });
-
-  app.get("/api/unifi/networks/:siteId", requireAdmin, async (req, res) => {
-    const networks = await unifi.getNetworks(req.params.siteId);
-    res.json(networks);
   });
 
   app.get("/api/tenant/unit", requireAuth, async (req, res) => {
@@ -504,11 +579,15 @@ export async function registerRoutes(
 
     if (unit.unifiWlanId) {
       const building = await storage.getBuilding(unit.buildingId);
-      const community = building ? await storage.getCommunity(building.communityId) : null;
-      const siteId = community?.unifiSiteId || "default";
-
+      if (!building) {
+        return res.status(500).json({ message: "Could not resolve building for this unit" });
+      }
+      const ctx = await getClientForCommunity(building.communityId);
+      if (!ctx) {
+        return res.status(500).json({ message: "No controller assigned to this community - cannot update WiFi on controller" });
+      }
       try {
-        await unifi.updateWlanPassword(siteId, unit.unifiWlanId, newPassword);
+        await ctx.client.updateWlanPassword(ctx.siteId, unit.unifiWlanId, newPassword);
       } catch (error: any) {
         return res.status(500).json({ message: `Failed to update WiFi: ${error.message}` });
       }
@@ -528,11 +607,13 @@ export async function registerRoutes(
     if (!unit) return res.status(404).json({ message: "Unit not found" });
 
     const building = await storage.getBuilding(unit.buildingId);
-    const community = building ? await storage.getCommunity(building.communityId) : null;
-    const siteId = community?.unifiSiteId || "default";
+    if (!building) return res.json([]);
+
+    const ctx = await getClientForCommunity(building.communityId);
+    if (!ctx) return res.json([]);
 
     try {
-      const allClients = await unifi.getClientStats(siteId);
+      const allClients = await ctx.client.getClientStats(ctx.siteId);
       const vlanClients = allClients.filter((c: any) => c.vlan === unit.vlanId);
       const sanitized = vlanClients.map((c: any) => ({
         hostname: c.hostname || c.name || "Unknown",

@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy } from "lucide-react";
+import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -175,6 +175,7 @@ export default function ControllersPage() {
   const [editController, setEditController] = useState<Controller | null>(null);
   const [expandedCtrlId, setExpandedCtrlId] = useState<string | null>(null);
   const [expandedSiteId, setExpandedSiteId] = useState<string | null>(null);
+  const [siteTab, setSiteTab] = useState<"networks" | "devices">("networks");
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
   const [addNetworkOpen, setAddNetworkOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
@@ -209,7 +210,12 @@ export default function ControllersPage() {
   };
 
   const toggleSite = (siteId: string) => {
-    setExpandedSiteId(expandedSiteId === siteId ? null : siteId);
+    if (expandedSiteId === siteId) {
+      setExpandedSiteId(null);
+    } else {
+      setExpandedSiteId(siteId);
+      setSiteTab("networks");
+    }
   };
 
   const { data: sites } = useQuery<any[]>({
@@ -229,7 +235,17 @@ export default function ControllersPage() {
       const res = await fetch(`/api/networks/controller/${expandedCtrlId}?siteId=${encodeURIComponent(expandedSiteId)}`, { credentials: "include" });
       return res.json();
     },
-    enabled: !!expandedCtrlId && !!expandedSiteId,
+    enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "networks",
+  });
+
+  const { data: siteDevices, isLoading: devicesLoading } = useQuery<any[]>({
+    queryKey: ["/api/controllers", expandedCtrlId, "devices", expandedSiteId],
+    queryFn: async () => {
+      if (!expandedCtrlId || !expandedSiteId) return [];
+      const res = await fetch(`/api/controllers/${expandedCtrlId}/devices/${encodeURIComponent(expandedSiteId)}`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "devices",
   });
 
   const addMutation = useMutation({
@@ -841,114 +857,184 @@ export default function ControllersPage() {
                                 data-testid={`button-toggle-site-${siteKey}`}
                               >
                                 <div className="flex items-center gap-2">
+                                  {isSiteExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                                   <Globe className="h-4 w-4 text-muted-foreground" />
                                   <span className="font-medium text-sm">{siteName}</span>
                                   <Badge variant="outline" className="text-xs">{siteKey}</Badge>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    size="sm"
-                                    variant={isSiteExpanded ? "default" : "outline"}
-                                    onClick={(e) => { e.stopPropagation(); toggleSite(siteKey); }}
-                                    data-testid={`button-networks-site-${siteKey}`}
-                                  >
-                                    <Layers className="h-3.5 w-3.5 mr-1" />
-                                    Networks
-                                  </Button>
-                                </div>
                               </div>
                               {isSiteExpanded && (
-                                <div className="border-t p-3">
-                                  <div className="flex items-center justify-between mb-3">
-                                    <h5 className="text-xs font-medium flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
+                                <div className="border-t">
+                                  <div className="flex border-b">
+                                    <button
+                                      className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "networks" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                                      onClick={() => setSiteTab("networks")}
+                                      data-testid={`button-tab-networks-${siteKey}`}
+                                    >
                                       <Layers className="h-3.5 w-3.5" />
-                                      Networks (VLANs)
-                                    </h5>
-                                    <div className="flex gap-2">
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => setBulkOpen({ controllerId: ctrl.id, siteId: siteKey })}
-                                        data-testid={`button-bulk-add-network-${siteKey}`}
-                                      >
-                                        <Copy className="h-3.5 w-3.5 mr-1" />
-                                        Bulk Add
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        onClick={() => setAddNetworkOpen({ controllerId: ctrl.id, siteId: siteKey })}
-                                        data-testid={`button-add-network-${siteKey}`}
-                                      >
-                                        <Plus className="h-3.5 w-3.5 mr-1" />
-                                        Add Network
-                                      </Button>
-                                    </div>
+                                      Networks
+                                      {siteNetworks && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{siteNetworks.length}</Badge>}
+                                    </button>
+                                    <button
+                                      className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "devices" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                                      onClick={() => setSiteTab("devices")}
+                                      data-testid={`button-tab-devices-${siteKey}`}
+                                    >
+                                      <Monitor className="h-3.5 w-3.5" />
+                                      Devices
+                                      {siteDevices && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{siteDevices.length}</Badge>}
+                                    </button>
                                   </div>
-                                  {siteNetworks && siteNetworks.length > 0 ? (
-                                    <Table>
-                                      <TableHeader>
-                                        <TableRow>
-                                          <TableHead>Name</TableHead>
-                                          <TableHead>VLAN</TableHead>
-                                          <TableHead>Subnet</TableHead>
-                                          <TableHead>DHCP</TableHead>
-                                          <TableHead>Source</TableHead>
-                                          <TableHead className="w-[60px]">Actions</TableHead>
-                                        </TableRow>
-                                      </TableHeader>
-                                      <TableBody>
-                                        {siteNetworks.map((net) => (
-                                          <TableRow key={net.id} className={!net.isManaged ? "opacity-75" : ""} data-testid={`row-network-${net.id}`}>
-                                            <TableCell className="font-medium" data-testid={`text-network-name-${net.id}`}>{net.name}</TableCell>
-                                            <TableCell>
-                                              <Badge variant="secondary" data-testid={`badge-vlan-${net.id}`}>VLAN {net.vlanId}</Badge>
-                                            </TableCell>
-                                            <TableCell className="text-sm text-muted-foreground font-mono">{net.ipSubnet || "—"}</TableCell>
-                                            <TableCell>
-                                              {net.dhcpEnabled ? (
-                                                <span className="text-xs text-muted-foreground">
-                                                  {net.dhcpStart} - {net.dhcpStop}
-                                                </span>
-                                              ) : (
-                                                <span className="text-xs text-muted-foreground">Disabled</span>
-                                              )}
-                                            </TableCell>
-                                            <TableCell>
-                                              {net.isManaged ? (
-                                                <Badge variant="outline" className="text-xs" data-testid={`badge-source-${net.id}`}>Web UI</Badge>
-                                              ) : (
-                                                <Badge variant="outline" className="text-xs bg-muted" data-testid={`badge-source-${net.id}`}>
-                                                  <Lock className="h-3 w-3 mr-1" />
-                                                  Controller
-                                                </Badge>
-                                              )}
-                                            </TableCell>
-                                            <TableCell>
-                                              {net.isManaged ? (
-                                                <Button
-                                                  size="icon"
-                                                  variant="ghost"
-                                                  onClick={() => {
-                                                    if (confirm("Delete this network? This will also remove it from the UniFi controller.")) {
-                                                      deleteNetworkMutation.mutate(net.id);
-                                                    }
-                                                  }}
-                                                  data-testid={`button-delete-network-${net.id}`}
-                                                >
-                                                  <Trash2 className="h-4 w-4 text-muted-foreground" />
-                                                </Button>
-                                              ) : (
-                                                <span className="text-xs text-muted-foreground px-2" title="Controller-managed networks cannot be modified here">—</span>
-                                              )}
-                                            </TableCell>
-                                          </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
-                                  ) : (
-                                    <p className="text-sm text-muted-foreground py-4 text-center">
-                                      No networks found. Add a network or test the controller connection to discover existing networks.
-                                    </p>
+
+                                  {siteTab === "networks" && (
+                                    <div className="p-3">
+                                      <div className="flex items-center justify-end mb-3 gap-2">
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => setBulkOpen({ controllerId: ctrl.id, siteId: siteKey })}
+                                          data-testid={`button-bulk-add-network-${siteKey}`}
+                                        >
+                                          <Copy className="h-3.5 w-3.5 mr-1" />
+                                          Bulk Add
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          onClick={() => setAddNetworkOpen({ controllerId: ctrl.id, siteId: siteKey })}
+                                          data-testid={`button-add-network-${siteKey}`}
+                                        >
+                                          <Plus className="h-3.5 w-3.5 mr-1" />
+                                          Add Network
+                                        </Button>
+                                      </div>
+                                      {siteNetworks && siteNetworks.length > 0 ? (
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead>Name</TableHead>
+                                              <TableHead>VLAN</TableHead>
+                                              <TableHead>Subnet</TableHead>
+                                              <TableHead>DHCP</TableHead>
+                                              <TableHead>Source</TableHead>
+                                              <TableHead className="w-[60px]">Actions</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {siteNetworks.map((net) => (
+                                              <TableRow key={net.id} className={!net.isManaged ? "opacity-75" : ""} data-testid={`row-network-${net.id}`}>
+                                                <TableCell className="font-medium" data-testid={`text-network-name-${net.id}`}>{net.name}</TableCell>
+                                                <TableCell>
+                                                  <Badge variant="secondary" data-testid={`badge-vlan-${net.id}`}>VLAN {net.vlanId}</Badge>
+                                                </TableCell>
+                                                <TableCell className="text-sm text-muted-foreground font-mono">{net.ipSubnet || "—"}</TableCell>
+                                                <TableCell>
+                                                  {net.dhcpEnabled ? (
+                                                    <span className="text-xs text-muted-foreground">
+                                                      {net.dhcpStart} - {net.dhcpStop}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-xs text-muted-foreground">Disabled</span>
+                                                  )}
+                                                </TableCell>
+                                                <TableCell>
+                                                  {net.isManaged ? (
+                                                    <Badge variant="outline" className="text-xs" data-testid={`badge-source-${net.id}`}>Web UI</Badge>
+                                                  ) : (
+                                                    <Badge variant="outline" className="text-xs bg-muted" data-testid={`badge-source-${net.id}`}>
+                                                      <Lock className="h-3 w-3 mr-1" />
+                                                      Controller
+                                                    </Badge>
+                                                  )}
+                                                </TableCell>
+                                                <TableCell>
+                                                  {net.isManaged ? (
+                                                    <Button
+                                                      size="icon"
+                                                      variant="ghost"
+                                                      onClick={() => {
+                                                        if (confirm("Delete this network? This will also remove it from the UniFi controller.")) {
+                                                          deleteNetworkMutation.mutate(net.id);
+                                                        }
+                                                      }}
+                                                      data-testid={`button-delete-network-${net.id}`}
+                                                    >
+                                                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                                    </Button>
+                                                  ) : (
+                                                    <span className="text-xs text-muted-foreground px-2" title="Controller-managed networks cannot be modified here">—</span>
+                                                  )}
+                                                </TableCell>
+                                              </TableRow>
+                                            ))}
+                                          </TableBody>
+                                        </Table>
+                                      ) : (
+                                        <p className="text-sm text-muted-foreground py-4 text-center">
+                                          No networks found. Add a network or test the controller connection to discover existing networks.
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {siteTab === "devices" && (
+                                    <div className="p-3">
+                                      {devicesLoading ? (
+                                        <div className="space-y-2">
+                                          <Skeleton className="h-8 w-full" />
+                                          <Skeleton className="h-8 w-full" />
+                                          <Skeleton className="h-8 w-full" />
+                                        </div>
+                                      ) : siteDevices && siteDevices.length > 0 ? (
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead>Name</TableHead>
+                                              <TableHead>Model</TableHead>
+                                              <TableHead>IP Address</TableHead>
+                                              <TableHead>MAC</TableHead>
+                                              <TableHead>Status</TableHead>
+                                              <TableHead>Version</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {siteDevices.map((dev: any) => (
+                                              <TableRow key={dev._id || dev.mac} data-testid={`row-device-${dev._id || dev.mac}`}>
+                                                <TableCell className="font-medium" data-testid={`text-device-name-${dev._id || dev.mac}`}>
+                                                  <div className="flex items-center gap-2">
+                                                    <Monitor className="h-4 w-4 text-muted-foreground" />
+                                                    {dev.name || dev.hostname || dev.model || "Unknown"}
+                                                  </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                  <Badge variant="outline" className="text-xs" data-testid={`badge-device-model-${dev._id || dev.mac}`}>
+                                                    {dev.model || "—"}
+                                                  </Badge>
+                                                </TableCell>
+                                                <TableCell className="text-sm text-muted-foreground font-mono">{dev.ip || "—"}</TableCell>
+                                                <TableCell className="text-sm text-muted-foreground font-mono">{dev.mac ? (dev.mac.includes(":") ? dev.mac : dev.mac.replace(/(.{2})(?=.)/g, "$1:")) : "—"}</TableCell>
+                                                <TableCell>
+                                                  {dev.state === 1 ? (
+                                                    <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20" data-testid={`badge-device-status-${dev._id || dev.mac}`}>
+                                                      <Signal className="h-3 w-3 mr-1" />
+                                                      Online
+                                                    </Badge>
+                                                  ) : (
+                                                    <Badge variant="secondary" data-testid={`badge-device-status-${dev._id || dev.mac}`}>
+                                                      Offline
+                                                    </Badge>
+                                                  )}
+                                                </TableCell>
+                                                <TableCell className="text-xs text-muted-foreground">{dev.version || "—"}</TableCell>
+                                              </TableRow>
+                                            ))}
+                                          </TableBody>
+                                        </Table>
+                                      ) : (
+                                        <p className="text-sm text-muted-foreground py-4 text-center">
+                                          No devices found on this site.
+                                        </p>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
                               )}

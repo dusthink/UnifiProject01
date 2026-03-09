@@ -20,6 +20,7 @@ import DevicesPage from "@/pages/admin/devices";
 import TenantsPage from "@/pages/admin/tenants";
 import UniFiPage from "@/pages/admin/unifi";
 import TenantPortal from "@/pages/tenant/portal";
+import TenantRegisterPage from "@/pages/tenant/register";
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -91,15 +92,20 @@ function AppContent() {
     );
   }
 
-  if (!user) {
-    return <LoginPage />;
-  }
-
-  if (user.role === "tenant") {
-    return <TenantPortal />;
-  }
-
-  return <AdminLayout />;
+  return (
+    <Switch>
+      <Route path="/register/tenant" component={TenantRegisterPage} />
+      <Route>
+        {!user ? (
+          <LoginPage />
+        ) : user.role === "tenant" ? (
+          <TenantPortal />
+        ) : (
+          <AdminLayout />
+        )}
+      </Route>
+    </Switch>
+  );
 }
 
 export default function App() {

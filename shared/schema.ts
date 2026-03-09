@@ -65,6 +65,16 @@ export const unitDevicePorts = pgTable("unit_device_ports", {
   portNumber: integer("port_number").notNull(),
 });
 
+export const inviteTokens = pgTable("invite_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  token: text("token").notNull().unique(),
+  unitId: varchar("unit_id").notNull(),
+  email: text("email"),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdBy: varchar("created_by").notNull(),
+});
+
 export const communitiesRelations = relations(communities, ({ many }) => ({
   buildings: many(buildings),
 }));
@@ -90,12 +100,17 @@ export const unitDevicePortsRelations = relations(unitDevicePorts, ({ one }) => 
   device: one(devices, { fields: [unitDevicePorts.deviceId], references: [devices.id] }),
 }));
 
+export const inviteTokensRelations = relations(inviteTokens, ({ one }) => ({
+  unit: one(units, { fields: [inviteTokens.unitId], references: [units.id] }),
+}));
+
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertCommunitySchema = createInsertSchema(communities).omit({ id: true });
 export const insertBuildingSchema = createInsertSchema(buildings).omit({ id: true });
 export const insertUnitSchema = createInsertSchema(units).omit({ id: true });
 export const insertDeviceSchema = createInsertSchema(devices).omit({ id: true });
 export const insertUnitDevicePortSchema = createInsertSchema(unitDevicePorts).omit({ id: true });
+export const insertInviteTokenSchema = createInsertSchema(inviteTokens).omit({ id: true });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -109,6 +124,8 @@ export type InsertDevice = z.infer<typeof insertDeviceSchema>;
 export type Device = typeof devices.$inferSelect;
 export type InsertUnitDevicePort = z.infer<typeof insertUnitDevicePortSchema>;
 export type UnitDevicePort = typeof unitDevicePorts.$inferSelect;
+export type InsertInviteToken = z.infer<typeof insertInviteTokenSchema>;
+export type InviteToken = typeof inviteTokens.$inferSelect;
 
 export const loginSchema = z.object({
   username: z.string().min(1, "Username or email is required"),

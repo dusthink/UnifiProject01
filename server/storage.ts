@@ -1,13 +1,14 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, communities, buildings, units, devices, unitDevicePorts,
+  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens,
   type User, type InsertUser,
   type Community, type InsertCommunity,
   type Building, type InsertBuilding,
   type Unit, type InsertUnit,
   type Device, type InsertDevice,
   type UnitDevicePort, type InsertUnitDevicePort,
+  type InviteToken, type InsertInviteToken,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -48,6 +49,12 @@ export interface IStorage {
   createPortAssignment(data: InsertUnitDevicePort): Promise<UnitDevicePort>;
   deletePortAssignment(id: string): Promise<void>;
   getPortAssignmentsByDevice(deviceId: string): Promise<UnitDevicePort[]>;
+
+  createInviteToken(data: InsertInviteToken): Promise<InviteToken>;
+  getInviteTokenByToken(token: string): Promise<InviteToken | undefined>;
+  markInviteTokenUsed(id: string): Promise<void>;
+  getInviteTokensByUnit(unitId: string): Promise<InviteToken[]>;
+  getPendingInvites(): Promise<InviteToken[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -199,6 +206,29 @@ export class DatabaseStorage implements IStorage {
 
   async getPortAssignmentsByDevice(deviceId: string): Promise<UnitDevicePort[]> {
     return db.select().from(unitDevicePorts).where(eq(unitDevicePorts.deviceId, deviceId));
+  }
+
+  async createInviteToken(data: InsertInviteToken): Promise<InviteToken> {
+    const [token] = await db.insert(inviteTokens).values(data).returning();
+    return token;
+  }
+
+  async getInviteTokenByToken(token: string): Promise<InviteToken | undefined> {
+    const [result] = await db.select().from(inviteTokens).where(eq(inviteTokens.token, token));
+    return result;
+  }
+
+  async markInviteTokenUsed(id: string): Promise<void> {
+    await db.update(inviteTokens).set({ usedAt: new Date() }).where(eq(inviteTokens.id, id));
+  }
+
+  async getInviteTokensByUnit(unitId: string): Promise<InviteToken[]> {
+    return db.select().from(inviteTokens).where(eq(inviteTokens.unitId, unitId));
+  }
+
+  async getPendingInvites(): Promise<InviteToken[]> {
+    const { isNull } = await import("drizzle-orm");
+    return db.select().from(inviteTokens).where(isNull(inviteTokens.usedAt));
   }
 }
 

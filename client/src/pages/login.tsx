@@ -195,31 +195,36 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        <p className="text-center text-sm text-muted-foreground">
-          {mode === "login" ? (
-            <>
-              Don't have an account?{" "}
-              <button
-                onClick={switchMode}
-                className="text-primary font-medium hover:underline"
-                data-testid="link-switch-to-register"
-              >
-                Create one
-              </button>
-            </>
-          ) : (
-            <>
-              Already have an account?{" "}
-              <button
-                onClick={switchMode}
-                className="text-primary font-medium hover:underline"
-                data-testid="link-switch-to-login"
-              >
-                Sign in
-              </button>
-            </>
-          )}
-        </p>
+        <div className="text-center space-y-1">
+          <p className="text-sm text-muted-foreground">
+            {mode === "login" ? (
+              <>
+                Don't have an account?{" "}
+                <button
+                  onClick={switchMode}
+                  className="text-primary font-medium hover:underline"
+                  data-testid="link-switch-to-register"
+                >
+                  Create one
+                </button>
+              </>
+            ) : (
+              <>
+                Already have an account?{" "}
+                <button
+                  onClick={switchMode}
+                  className="text-primary font-medium hover:underline"
+                  data-testid="link-switch-to-login"
+                >
+                  Sign in
+                </button>
+              </>
+            )}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Tenants: use the invite link from your property manager
+          </p>
+        </div>
       </div>
     </div>
   );

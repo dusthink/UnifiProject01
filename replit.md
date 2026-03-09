@@ -14,15 +14,19 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - **UniFi Integration:** Create VLANs, configure port profiles, manage WLANs, discover devices
 
 ## Authentication
-- **Local auth:** Email/password registration and login (bcrypt-hashed passwords)
+- **Local auth:** Email/password registration and login (scrypt-hashed passwords)
 - **Google OAuth 2.0:** Sign in / sign up with Google
-- **Login page:** Toggle between Sign In and Create Account modes
+- **Admin self-registration:** Open -- anyone creating account via main signup form or Google becomes admin
+- **Tenant registration:** Invite-only -- admins generate invite links per unit, tenants use those links to register
+- **Invite tokens:** 7-day expiry, single-use, optional email binding, stored in `invite_tokens` table
 - Users table supports: username, email, password (nullable for Google-only accounts), googleId, avatarUrl
 - Default admin seed: username `admin`, password `admin123`
 - Google OAuth callback: `/api/auth/google/callback`
+- Tenant registration page: `/register/tenant?token=xxx`
 
 ## Data Model
 - Users (admin/tenant roles, optional Google ID, email, avatar)
+- InviteTokens (token, unitId, email, expiresAt, usedAt, createdBy)
 - Communities → Buildings → Units (hierarchical)
 - Devices (UniFi switches/APs)
 - UnitDevicePorts (port-to-unit assignments)

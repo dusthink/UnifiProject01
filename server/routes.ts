@@ -5,6 +5,7 @@ import { setupAuth, requireAuth, requireAdmin, hashPassword, comparePasswords } 
 import * as unifi from "./unifi";
 import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDeviceSchema, insertUnitDevicePortSchema, loginSchema, registerSchema } from "@shared/schema";
 import passport from "passport";
+import { randomBytes } from "crypto";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -34,6 +35,7 @@ export async function registerRoutes(
       }
 
       const { email, password, displayName } = parsed.data;
+      const inviteToken = req.body.inviteToken as string | undefined;
 
       const existingEmail = await storage.getUserByEmail(email);
       if (existingEmail) {
@@ -45,14 +47,41 @@ export async function registerRoutes(
         return res.status(409).json({ message: "An account with this email already exists" });
       }
 
+      let role: "admin" | "tenant" = "admin";
+      let unitId: string | undefined;
+
+      if (inviteToken) {
+        const invite = await storage.getInviteTokenByToken(inviteToken);
+        if (!invite) {
+          return res.status(400).json({ message: "Invalid invite link" });
+        }
+        if (invite.usedAt) {
+          return res.status(400).json({ message: "This invite link has already been used" });
+        }
+        if (new Date() > invite.expiresAt) {
+          return res.status(400).json({ message: "This invite link has expired" });
+        }
+        if (invite.email && invite.email.toLowerCase() !== email.toLowerCase()) {
+          return res.status(400).json({ message: "This invite link was sent to a different email address" });
+        }
+        role = "tenant";
+        unitId = invite.unitId;
+      }
+
       const hashed = await hashPassword(password);
       const user = await storage.createUser({
         username: email,
         email,
         password: hashed,
-        role: "tenant",
+        role,
+        unitId,
         displayName,
       });
+
+      if (inviteToken) {
+        const invite = await storage.getInviteTokenByToken(inviteToken);
+        if (invite) await storage.markInviteTokenUsed(invite.id);
+      }
 
       req.logIn(user, (err) => {
         if (err) return res.status(500).json({ message: "Account created but login failed" });
@@ -64,12 +93,32 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+  app.get("/api/auth/google", (req: any, res, next) => {
+    if (req.query.inviteToken) {
+      req.session.pendingInviteToken = req.query.inviteToken;
+    }
+    passport.authenticate("google", { scope: ["profile", "email"] })(req, res, next);
+  });
 
   app.get("/api/auth/google/callback",
     passport.authenticate("google", { failureRedirect: "/login?error=google_auth_failed" }),
-    (req, res) => {
+    async (req: any, res) => {
       const user = req.user as any;
+      const pendingToken = req.session?.pendingInviteToken;
+      delete req.session.pendingInviteToken;
+
+      if (pendingToken) {
+        const invite = await storage.getInviteTokenByToken(pendingToken);
+        if (invite && !invite.usedAt && new Date() <= invite.expiresAt) {
+          if (invite.email && user.email && invite.email.toLowerCase() !== user.email.toLowerCase()) {
+            return res.redirect("/login?error=google_auth_failed");
+          }
+          await storage.updateUser(user.id, { role: "tenant", unitId: invite.unitId });
+          await storage.markInviteTokenUsed(invite.id);
+          return res.redirect("/tenant");
+        }
+      }
+
       if (user.role === "tenant") {
         res.redirect("/tenant");
       } else {
@@ -77,6 +126,86 @@ export async function registerRoutes(
       }
     }
   );
+
+  app.get("/api/invite/:token", async (req, res) => {
+    const invite = await storage.getInviteTokenByToken(req.params.token);
+    if (!invite) {
+      return res.status(404).json({ message: "Invalid invite link" });
+    }
+    if (invite.usedAt) {
+      return res.status(400).json({ message: "This invite link has already been used" });
+    }
+    if (new Date() > invite.expiresAt) {
+      return res.status(400).json({ message: "This invite link has expired" });
+    }
+
+    const unit = await storage.getUnit(invite.unitId);
+    if (!unit) {
+      return res.status(404).json({ message: "Unit not found" });
+    }
+
+    const building = await storage.getBuilding(unit.buildingId);
+    const community = building ? await storage.getCommunity(building.communityId) : null;
+
+    res.json({
+      valid: true,
+      email: invite.email,
+      unitNumber: unit.unitNumber,
+      buildingName: building?.name,
+      communityName: community?.name,
+    });
+  });
+
+  app.post("/api/admin/invite", requireAdmin, async (req, res) => {
+    const { unitId, email } = req.body;
+    if (!unitId) {
+      return res.status(400).json({ message: "Unit ID is required" });
+    }
+
+    const unit = await storage.getUnit(unitId);
+    if (!unit) {
+      return res.status(404).json({ message: "Unit not found" });
+    }
+
+    const token = randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const invite = await storage.createInviteToken({
+      token,
+      unitId,
+      email: email || null,
+      expiresAt,
+      createdBy: (req.user as any).id,
+    });
+
+    const baseUrl = process.env.REPLIT_DEV_DOMAIN
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+      : process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
+        : "http://localhost:5000";
+
+    const inviteUrl = `${baseUrl}/register/tenant?token=${token}`;
+
+    res.status(201).json({ invite, inviteUrl });
+  });
+
+  app.get("/api/admin/invites", requireAdmin, async (req, res) => {
+    const invites = await storage.getPendingInvites();
+    const enriched = await Promise.all(
+      invites.map(async (inv) => {
+        const unit = await storage.getUnit(inv.unitId);
+        const building = unit ? await storage.getBuilding(unit.buildingId) : null;
+        const community = building ? await storage.getCommunity(building.communityId) : null;
+        return {
+          ...inv,
+          unitNumber: unit?.unitNumber,
+          buildingName: building?.name,
+          communityName: community?.name,
+        };
+      })
+    );
+    res.json(enriched);
+  });
 
   app.post("/api/auth/logout", (req, res) => {
     req.logout((err) => {

@@ -112,7 +112,7 @@ export function setupAuth(app: Express) {
               email: email || null,
               googleId: profile.id,
               password: null,
-              role: "tenant",
+              role: "admin",
               displayName: profile.displayName || email || "User",
               avatarUrl: profile.photos?.[0]?.value || null,
             });

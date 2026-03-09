@@ -1,5 +1,6 @@
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
+import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { type Express } from "express";
@@ -32,13 +33,13 @@ export function setupAuth(app: Express) {
         pool,
         createTableIfMissing: true,
       }),
-      secret: process.env.SESSION_SECRET || "unifi-mdu-secret-key",
+      secret: process.env.SESSION_SECRET!,
       resave: false,
       saveUninitialized: false,
       cookie: {
         maxAge: 30 * 24 * 60 * 60 * 1000,
         httpOnly: true,
-        secure: false,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
       },
     })
@@ -50,9 +51,15 @@ export function setupAuth(app: Express) {
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
-        const user = await storage.getUserByUsername(username);
+        let user = await storage.getUserByUsername(username);
+        if (!user) {
+          user = await storage.getUserByEmail(username);
+        }
         if (!user) {
           return done(null, false, { message: "Invalid credentials" });
+        }
+        if (!user.password) {
+          return done(null, false, { message: "This account uses Google sign-in. Please use the Google button to log in." });
         }
         const isValid = await comparePasswords(password, user.password);
         if (!isValid) {
@@ -64,6 +71,64 @@ export function setupAuth(app: Express) {
       }
     })
   );
+
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    const callbackURL = process.env.REPLIT_DEV_DOMAIN
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}/api/auth/google/callback`
+      : process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}/api/auth/google/callback`
+        : "http://localhost:5000/api/auth/google/callback";
+
+    passport.use(
+      new GoogleStrategy(
+        {
+          clientID: process.env.GOOGLE_CLIENT_ID,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          callbackURL,
+        },
+        async (accessToken, refreshToken, profile, done) => {
+          try {
+            let user = await storage.getUserByGoogleId(profile.id);
+
+            if (user) {
+              return done(null, user);
+            }
+
+            const email = profile.emails?.[0]?.value;
+            if (email) {
+              user = await storage.getUserByEmail(email);
+              if (user) {
+                await storage.updateUser(user.id, {
+                  googleId: profile.id,
+                  avatarUrl: profile.photos?.[0]?.value || user.avatarUrl,
+                });
+                const updated = await storage.getUser(user.id);
+                return done(null, updated!);
+              }
+            }
+
+            const newUser = await storage.createUser({
+              username: email || `google_${profile.id}`,
+              email: email || null,
+              googleId: profile.id,
+              password: null,
+              role: "tenant",
+              displayName: profile.displayName || email || "User",
+              avatarUrl: profile.photos?.[0]?.value || null,
+            });
+
+            return done(null, newUser);
+          } catch (err) {
+            return done(err);
+          }
+        }
+      )
+    );
+
+    console.log(`Google OAuth configured with callback: ${callbackURL}`);
+  } else {
+    console.log("Google OAuth not configured - missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET");
+  }
 
   passport.serializeUser((user: any, done) => {
     done(null, user.id);

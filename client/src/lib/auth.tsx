@@ -9,6 +9,7 @@ interface AuthContextType {
   user: AuthUser | null;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
+  register: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -41,6 +42,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  const registerMutation = useMutation({
+    mutationFn: async ({ email, password, displayName }: { email: string; password: string; displayName: string }) => {
+      const res = await apiRequest("POST", "/api/auth/register", { email, password, displayName });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || "Registration failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+  });
+
   const logoutMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("POST", "/api/auth/logout");
@@ -54,12 +69,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await loginMutation.mutateAsync({ username, password });
   };
 
+  const register = async (email: string, password: string, displayName: string) => {
+    await registerMutation.mutateAsync({ email, password, displayName });
+  };
+
   const logout = async () => {
     await logoutMutation.mutateAsync();
   };
 
   return (
-    <AuthContext.Provider value={{ user: user ?? null, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user: user ?? null, isLoading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

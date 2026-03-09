@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireAdmin, hashPassword, comparePasswords } from "./auth";
 import * as unifi from "./unifi";
-import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDeviceSchema, insertUnitDevicePortSchema, loginSchema } from "@shared/schema";
+import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDeviceSchema, insertUnitDevicePortSchema, loginSchema, registerSchema } from "@shared/schema";
 import passport from "passport";
 
 export async function registerRoutes(
@@ -25,6 +25,58 @@ export async function registerRoutes(
       });
     })(req, res, next);
   });
+
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      const parsed = registerSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid input" });
+      }
+
+      const { email, password, displayName } = parsed.data;
+
+      const existingEmail = await storage.getUserByEmail(email);
+      if (existingEmail) {
+        return res.status(409).json({ message: "An account with this email already exists" });
+      }
+
+      const existingUsername = await storage.getUserByUsername(email);
+      if (existingUsername) {
+        return res.status(409).json({ message: "An account with this email already exists" });
+      }
+
+      const hashed = await hashPassword(password);
+      const user = await storage.createUser({
+        username: email,
+        email,
+        password: hashed,
+        role: "tenant",
+        displayName,
+      });
+
+      req.logIn(user, (err) => {
+        if (err) return res.status(500).json({ message: "Account created but login failed" });
+        const { password: _, ...safeUser } = user;
+        return res.status(201).json(safeUser);
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: "Registration failed" });
+    }
+  });
+
+  app.get("/api/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+
+  app.get("/api/auth/google/callback",
+    passport.authenticate("google", { failureRedirect: "/login?error=google_auth_failed" }),
+    (req, res) => {
+      const user = req.user as any;
+      if (user.role === "tenant") {
+        res.redirect("/tenant");
+      } else {
+        res.redirect("/admin");
+      }
+    }
+  );
 
   app.post("/api/auth/logout", (req, res) => {
     req.logout((err) => {

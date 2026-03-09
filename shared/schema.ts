@@ -10,10 +10,13 @@ export const wifiModeEnum = pgEnum("wifi_mode", ["ppsk", "individual"]);
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+  email: text("email").unique(),
+  password: text("password"),
+  googleId: text("google_id").unique(),
   role: roleEnum("role").notNull().default("admin"),
   unitId: varchar("unit_id"),
   displayName: text("display_name"),
+  avatarUrl: text("avatar_url"),
 });
 
 export const communities = pgTable("communities", {
@@ -108,8 +111,15 @@ export type InsertUnitDevicePort = z.infer<typeof insertUnitDevicePortSchema>;
 export type UnitDevicePort = typeof unitDevicePorts.$inferSelect;
 
 export const loginSchema = z.object({
-  username: z.string().min(1, "Username is required"),
+  username: z.string().min(1, "Username or email is required"),
   password: z.string().min(1, "Password is required"),
 });
 
+export const registerSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  displayName: z.string().min(1, "Display name is required"),
+});
+
 export type LoginData = z.infer<typeof loginSchema>;
+export type RegisterData = z.infer<typeof registerSchema>;

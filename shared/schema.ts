@@ -35,6 +35,7 @@ export const networks = pgTable("networks", {
   dhcpStop: text("dhcp_stop"),
   unifiNetworkId: text("unifi_network_id"),
   siteId: text("site_id").default("default"),
+  isManaged: boolean("is_managed").default(true),
 });
 
 export const sites = pgTable("sites", {

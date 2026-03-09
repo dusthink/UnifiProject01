@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers } from "lucide-react";
+import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -649,12 +649,13 @@ export default function ControllersPage() {
                             <TableHead>VLAN</TableHead>
                             <TableHead>Subnet</TableHead>
                             <TableHead>DHCP</TableHead>
+                            <TableHead>Source</TableHead>
                             <TableHead className="w-[60px]">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {controllerNetworks.map((net) => (
-                            <TableRow key={net.id} data-testid={`row-network-${net.id}`}>
+                            <TableRow key={net.id} className={!net.isManaged ? "opacity-75" : ""} data-testid={`row-network-${net.id}`}>
                               <TableCell className="font-medium" data-testid={`text-network-name-${net.id}`}>{net.name}</TableCell>
                               <TableCell>
                                 <Badge variant="secondary" data-testid={`badge-vlan-${net.id}`}>VLAN {net.vlanId}</Badge>
@@ -670,18 +671,32 @@ export default function ControllersPage() {
                                 )}
                               </TableCell>
                               <TableCell>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  onClick={() => {
-                                    if (confirm("Delete this network?")) {
-                                      deleteNetworkMutation.mutate(net.id);
-                                    }
-                                  }}
-                                  data-testid={`button-delete-network-${net.id}`}
-                                >
-                                  <Trash2 className="h-4 w-4 text-muted-foreground" />
-                                </Button>
+                                {net.isManaged ? (
+                                  <Badge variant="outline" className="text-xs" data-testid={`badge-source-${net.id}`}>Web UI</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs bg-muted" data-testid={`badge-source-${net.id}`}>
+                                    <Lock className="h-3 w-3 mr-1" />
+                                    Controller
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {net.isManaged ? (
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      if (confirm("Delete this network? This will also remove it from the UniFi controller.")) {
+                                        deleteNetworkMutation.mutate(net.id);
+                                      }
+                                    }}
+                                    data-testid={`button-delete-network-${net.id}`}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                  </Button>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground px-2" title="Controller-managed networks cannot be modified here">—</span>
+                                )}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -689,7 +704,7 @@ export default function ControllersPage() {
                       </Table>
                     ) : (
                       <p className="text-sm text-muted-foreground py-4 text-center">
-                        No networks configured yet. Add a network to get started.
+                        No networks found. Add a network or test the controller connection to discover existing networks.
                       </p>
                     )}
                   </div>

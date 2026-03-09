@@ -560,8 +560,76 @@ export async function registerRoutes(
   });
 
   app.get("/api/networks/controller/:controllerId", requireAdmin, async (req, res) => {
-    const result = await storage.getNetworksByController(req.params.controllerId);
-    res.json(result);
+    try {
+      const controllerId = req.params.controllerId;
+      const siteId = (req.query.siteId as string) || "default";
+      const controller = await storage.getController(controllerId);
+      if (!controller) return res.status(404).json({ message: "Controller not found" });
+
+      const dbNetworks = await storage.getNetworksByController(controllerId);
+
+      let liveNetworks: any[] = [];
+      let liveFetchSucceeded = false;
+      if (controller.isVerified) {
+        try {
+          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+          liveNetworks = await client.getNetworks(siteId);
+          liveFetchSucceeded = true;
+        } catch (e: any) {
+          console.error(`[networks] Failed to fetch live networks for controller ${controllerId}: ${e.message}`);
+        }
+      }
+
+      if (liveFetchSucceeded) {
+        const siteDiscovered = dbNetworks.filter(n => !n.isManaged && n.siteId === siteId);
+        const dbByUnifiId = new Map(siteDiscovered.filter(n => n.unifiNetworkId).map(n => [n.unifiNetworkId, n]));
+        const liveByUnifiId = new Map(liveNetworks.map(n => [n._id, n]));
+
+        for (const live of liveNetworks) {
+          if (!dbByUnifiId.has(live._id)) {
+            const vlan = live.vlan_enabled ? (live.vlan || 0) : 0;
+            await storage.createNetwork({
+              controllerId,
+              name: live.name || `Network-${live._id.substring(0, 6)}`,
+              vlanId: vlan,
+              purpose: live.purpose || "corporate",
+              ipSubnet: live.ip_subnet || null,
+              dhcpEnabled: live.dhcpd_enabled ?? false,
+              dhcpStart: live.dhcpd_start || null,
+              dhcpStop: live.dhcpd_stop || null,
+              unifiNetworkId: live._id,
+              siteId,
+              isManaged: false,
+            });
+          } else {
+            const existing = dbByUnifiId.get(live._id)!;
+            const vlan = live.vlan_enabled ? (live.vlan || 0) : 0;
+            if (existing.name !== live.name || existing.vlanId !== vlan || existing.ipSubnet !== (live.ip_subnet || null)) {
+              await storage.updateNetwork(existing.id, {
+                name: live.name || existing.name,
+                vlanId: vlan,
+                ipSubnet: live.ip_subnet || null,
+                dhcpEnabled: live.dhcpd_enabled ?? existing.dhcpEnabled,
+                dhcpStart: live.dhcpd_start || null,
+                dhcpStop: live.dhcpd_stop || null,
+              });
+            }
+          }
+        }
+
+        const staleDiscovered = siteDiscovered.filter(n => n.unifiNetworkId && !liveByUnifiId.has(n.unifiNetworkId));
+        for (const stale of staleDiscovered) {
+          await storage.deleteNetwork(stale.id);
+        }
+      }
+
+      const updatedNetworks = await storage.getNetworksByController(controllerId);
+      res.json(updatedNetworks);
+    } catch (err: any) {
+      console.error(`[networks] Error syncing networks: ${err.message}`);
+      const fallback = await storage.getNetworksByController(req.params.controllerId);
+      res.json(fallback);
+    }
   });
 
   app.get("/api/networks/:id", requireAdmin, async (req, res) => {
@@ -571,13 +639,53 @@ export async function registerRoutes(
   });
 
   app.post("/api/networks", requireAdmin, async (req, res) => {
-    const parsed = insertNetworkSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
-    const network = await storage.createNetwork(parsed.data);
-    res.status(201).json(network);
+    try {
+      const parsed = insertNetworkSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+      const controller = await storage.getController(parsed.data.controllerId);
+      if (!controller) return res.status(400).json({ message: "Controller not found" });
+
+      const existingNetworks = await storage.getNetworksByController(parsed.data.controllerId);
+      const duplicate = existingNetworks.find(n => n.vlanId === parsed.data.vlanId);
+      if (duplicate) {
+        return res.status(400).json({
+          message: `VLAN ${parsed.data.vlanId} is already in use by network "${duplicate.name}"${!duplicate.isManaged ? " (controller-managed)" : ""}. Choose a different VLAN ID.`
+        });
+      }
+
+      const siteId = parsed.data.siteId || "default";
+      let unifiNetworkId: string | null = null;
+
+      if (controller.isVerified) {
+        const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+        const networkResult = await client.createNetwork(
+          siteId,
+          parsed.data.name,
+          parsed.data.vlanId,
+          parsed.data.purpose || "corporate"
+        );
+        unifiNetworkId = networkResult?.data?.[0]?._id || null;
+        if (!unifiNetworkId) {
+          return res.status(500).json({ message: "Failed to create network on UniFi controller. The controller did not return a network ID." });
+        }
+      }
+
+      const network = await storage.createNetwork({
+        ...parsed.data,
+        unifiNetworkId,
+        isManaged: true,
+      });
+      res.status(201).json(network);
+    } catch (err: any) {
+      res.status(500).json({ message: `Failed to create network: ${err.message}` });
+    }
   });
 
   app.patch("/api/networks/:id", requireAdmin, async (req, res) => {
+    const existing = await storage.getNetwork(req.params.id);
+    if (!existing) return res.status(404).json({ message: "Network not found" });
+    if (!existing.isManaged) return res.status(403).json({ message: "Cannot edit controller-managed networks. This network was discovered from the UniFi controller." });
     const partial = insertNetworkSchema.partial().safeParse(req.body);
     if (!partial.success) return res.status(400).json({ message: partial.error.message });
     const network = await storage.updateNetwork(req.params.id, partial.data);
@@ -586,8 +694,24 @@ export async function registerRoutes(
   });
 
   app.delete("/api/networks/:id", requireAdmin, async (req, res) => {
-    await storage.deleteNetwork(req.params.id);
-    res.status(204).end();
+    try {
+      const network = await storage.getNetwork(req.params.id);
+      if (!network) return res.status(404).json({ message: "Network not found" });
+      if (!network.isManaged) return res.status(403).json({ message: "Cannot delete controller-managed networks. This network exists on the UniFi controller and was not created from this interface." });
+
+      if (network.unifiNetworkId) {
+        const controller = await storage.getController(network.controllerId);
+        if (controller?.isVerified) {
+          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+          await client.deleteNetwork(network.siteId || "default", network.unifiNetworkId);
+        }
+      }
+
+      await storage.deleteNetwork(req.params.id);
+      res.status(204).end();
+    } catch (err: any) {
+      res.status(500).json({ message: `Failed to delete network: ${err.message}` });
+    }
   });
 
   app.post("/api/units/:id/provision", requireAdmin, async (req, res) => {

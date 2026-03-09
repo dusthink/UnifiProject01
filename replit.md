@@ -31,7 +31,7 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - Sites (id, controllerId, unifiSiteId, name, description, deviceCount, isDefault) — persisted from UniFi on successful test
 - Users (admin/tenant roles, optional Google ID, email, avatar, tosAcceptedAt)
 - InviteTokens (token, unitId, email, expiresAt, usedAt, createdBy)
-- Networks (id, controllerId, name, vlanId, ipSubnet, dhcpEnabled, dhcpStart, dhcpStop, unifiNetworkId, siteId) — VLAN networks per controller
+- Networks (id, controllerId, name, vlanId, ipSubnet, dhcpEnabled, dhcpStart, dhcpStop, unifiNetworkId, siteId, isManaged) — VLAN networks per controller; isManaged=true for web-created, false for controller-discovered
 - Communities (has controllerId FK, unifiSiteId) → Buildings → Units (hierarchical, tenantId FK to users, networkId FK to networks)
 - Devices (UniFi switches/APs, linked to buildings)
 - UnitDevicePorts (device-to-unit assignments for provisioning)

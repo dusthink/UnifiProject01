@@ -309,9 +309,9 @@ export default function ControllersPage() {
     if (!isNaN(v) && v > 0 && v < 4095) {
       const oct2 = Math.floor(v / 256);
       const oct3 = v % 256;
-      setNetworkSubnet(`10.${oct2}.${oct3}.1/24`);
-      setNetworkDhcpStart(`10.${oct2}.${oct3}.100`);
-      setNetworkDhcpStop(`10.${oct2}.${oct3}.254`);
+      setNetworkSubnet(`10.${oct2}.${oct3}.1/25`);
+      setNetworkDhcpStart(`10.${oct2}.${oct3}.2`);
+      setNetworkDhcpStop(`10.${oct2}.${oct3}.126`);
     }
   };
 
@@ -419,7 +419,7 @@ export default function ControllersPage() {
               <Input
                 value={networkSubnet}
                 onChange={(e) => setNetworkSubnet(e.target.value)}
-                placeholder="e.g., 10.0.100.1/24"
+                placeholder="e.g., 10.0.100.1/25"
                 data-testid="input-network-subnet"
               />
               <p className="text-xs text-muted-foreground">Auto-filled from VLAN ID. Modify if needed.</p>
@@ -442,7 +442,7 @@ export default function ControllersPage() {
                   <Input
                     value={networkDhcpStart}
                     onChange={(e) => setNetworkDhcpStart(e.target.value)}
-                    placeholder="e.g., 10.0.100.100"
+                    placeholder="e.g., 10.0.100.2"
                     data-testid="input-dhcp-start"
                   />
                 </div>
@@ -451,7 +451,7 @@ export default function ControllersPage() {
                   <Input
                     value={networkDhcpStop}
                     onChange={(e) => setNetworkDhcpStop(e.target.value)}
-                    placeholder="e.g., 10.0.100.254"
+                    placeholder="e.g., 10.0.100.126"
                     data-testid="input-dhcp-stop"
                   />
                 </div>

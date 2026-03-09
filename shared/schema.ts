@@ -74,7 +74,7 @@ export const buildings = pgTable("buildings", {
   communityId: varchar("community_id").notNull(),
   name: text("name").notNull(),
   address: text("address"),
-  floors: integer("floors"),
+  floors: integer("floors").notNull(),
 });
 
 export const units = pgTable("units", {

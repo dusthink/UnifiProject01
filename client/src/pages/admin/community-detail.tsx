@@ -54,7 +54,7 @@ export default function CommunityDetailPage({ id }: { id: string }) {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; address: string; floors: number | null; communityId: string }) => {
+    mutationFn: async (data: { name: string; address: string; floors: number; communityId: string }) => {
       const res = await apiRequest("POST", "/api/buildings", data);
       return res.json();
     },
@@ -72,7 +72,7 @@ export default function CommunityDetailPage({ id }: { id: string }) {
   });
 
   const editMutation = useMutation({
-    mutationFn: async ({ buildingId, data }: { buildingId: string; data: { name: string; address: string; floors: number | null } }) => {
+    mutationFn: async ({ buildingId, data }: { buildingId: string; data: { name: string; address: string; floors: number } }) => {
       const res = await apiRequest("PATCH", `/api/buildings/${buildingId}`, data);
       return res.json();
     },
@@ -149,7 +149,7 @@ export default function CommunityDetailPage({ id }: { id: string }) {
                 createMutation.mutate({
                   name: buildingName,
                   address: buildingAddress,
-                  floors: buildingFloors ? parseInt(buildingFloors) : null,
+                  floors: parseInt(buildingFloors),
                   communityId: id,
                 });
               }}
@@ -185,6 +185,7 @@ export default function CommunityDetailPage({ id }: { id: string }) {
                   onChange={(e) => setBuildingFloors(e.target.value)}
                   placeholder="e.g., 3"
                   min={1}
+                  required
                   data-testid="input-building-floors"
                 />
               </div>
@@ -291,18 +292,18 @@ export default function CommunityDetailPage({ id }: { id: string }) {
 
 function EditBuildingForm({ building, onSubmit, isPending }: {
   building: Building;
-  onSubmit: (data: { name: string; address: string; floors: number | null }) => void;
+  onSubmit: (data: { name: string; address: string; floors: number }) => void;
   isPending: boolean;
 }) {
   const [name, setName] = useState(building.name);
   const [address, setAddress] = useState(building.address || "");
-  const [floors, setFloors] = useState(building.floors?.toString() || "");
+  const [floors, setFloors] = useState(building.floors?.toString() || "1");
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ name, address, floors: floors ? parseInt(floors) : null });
+        onSubmit({ name, address, floors: parseInt(floors) || 1 });
       }}
       className="space-y-4"
     >
@@ -332,6 +333,7 @@ function EditBuildingForm({ building, onSubmit, isPending }: {
           onChange={(e) => setFloors(e.target.value)}
           placeholder="e.g., 3"
           min={1}
+          required
           data-testid="input-edit-building-floors"
         />
       </div>

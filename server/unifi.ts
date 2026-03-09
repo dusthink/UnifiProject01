@@ -1,6 +1,8 @@
-import { Agent, ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici";
+import https from "https";
+import { HttpsProxyAgent } from "https-proxy-agent";
+import nodeFetch, { type RequestInit, type Response } from "node-fetch";
 
-function createDispatcher(): Dispatcher {
+function createAgent(): https.Agent {
   const proxyHost = process.env.PROXY_HOST;
   const proxyPort = process.env.PROXY_PORT;
   const proxyUser = process.env.PROXY_USERNAME;
@@ -9,17 +11,18 @@ function createDispatcher(): Dispatcher {
   if (proxyHost && proxyPort && proxyUser && proxyPass) {
     const proxyUrl = `http://${proxyUser}:${proxyPass}@${proxyHost}:${proxyPort}`;
     console.log(`[unifi] Using HTTP proxy at ${proxyHost}:${proxyPort}`);
-    return new ProxyAgent({
-      uri: proxyUrl,
-      requestTls: { rejectUnauthorized: false },
-    });
+    return new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
   }
 
   console.log("[unifi] No proxy configured, connecting directly");
-  return new Agent({ connect: { rejectUnauthorized: false } });
+  return new https.Agent({ rejectUnauthorized: false });
 }
 
-const dispatcher = createDispatcher();
+const agent = createAgent();
+
+function proxyFetch(url: string, opts: RequestInit = {}): Promise<Response> {
+  return nodeFetch(url, { ...opts, agent } as any);
+}
 
 interface UnifiCookie {
   value: string;
@@ -51,10 +54,10 @@ export class UnifiClient {
       }
     }
 
-    const options: any = { method, headers, dispatcher };
+    const options: RequestInit = { method, headers };
     if (body) options.body = JSON.stringify(body);
 
-    const response = await undiciFetch(url, options);
+    const response = await proxyFetch(url, options);
 
     if (response.status === 401) {
       this.authCookie = null;
@@ -62,7 +65,7 @@ export class UnifiClient {
       if (this.authCookie) {
         headers["Cookie"] = this.authCookie.value;
       }
-      const retryResponse = await undiciFetch(url, { ...options, headers, dispatcher });
+      const retryResponse = await proxyFetch(url, { ...options, headers });
       if (!retryResponse.ok) {
         throw new Error(`UniFi API error: ${retryResponse.status} ${retryResponse.statusText}`);
       }
@@ -87,20 +90,34 @@ export class UnifiClient {
 
   async login(): Promise<boolean> {
     try {
-      const response = await undiciFetch(`${this.baseUrl}/api/login`, {
+      const response = await proxyFetch(`${this.baseUrl}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: this.username, password: this.password }),
-        dispatcher,
       });
+
+      if (!response.ok) {
+        console.error(`[unifi] Login HTTP error: ${response.status} ${response.statusText}`);
+        return false;
+      }
 
       const setCookie = response.headers.get("set-cookie");
       if (setCookie) {
         this.authCookie = { value: setCookie.split(";")[0], expires: Date.now() + 1800000 };
       }
 
-      const data = await response.json() as any;
-      return data.meta?.rc === "ok";
+      const text = await response.text();
+      if (!text) {
+        console.error("[unifi] Login returned empty response body");
+        return false;
+      }
+      try {
+        const data = JSON.parse(text);
+        return data.meta?.rc === "ok";
+      } catch {
+        console.error(`[unifi] Login returned non-JSON response: ${text.substring(0, 200)}`);
+        return false;
+      }
     } catch (error: any) {
       console.error(`[unifi] Login error: ${error.message}`);
       return false;

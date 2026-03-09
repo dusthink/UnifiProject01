@@ -7,7 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -182,6 +185,15 @@ export default function ControllersPage() {
   const [networkDhcpStart, setNetworkDhcpStart] = useState("");
   const [networkDhcpStop, setNetworkDhcpStop] = useState("");
 
+  const [bulkOpen, setBulkOpen] = useState<string | null>(null);
+  const [bulkCount, setBulkCount] = useState("10");
+  const [bulkVlanStart, setBulkVlanStart] = useState("100");
+  const [bulkPrefix, setBulkPrefix] = useState("VLAN-");
+  const [bulkSubnetSize, setBulkSubnetSize] = useState("25");
+  const [bulkDhcp, setBulkDhcp] = useState(true);
+  const [bulkResult, setBulkResult] = useState<{ requested: number; total: number; succeeded: number; failed: number; skipped: number; errors: string[]; results: any[] } | null>(null);
+  const [bulkCreating, setBulkCreating] = useState(false);
+
   const { data: controllers, isLoading } = useQuery<Controller[]>({
     queryKey: ["/api/controllers"],
   });
@@ -313,6 +325,72 @@ export default function ControllersPage() {
       setNetworkDhcpStart(`10.${oct2}.${oct3}.2`);
       setNetworkDhcpStop(`10.${oct2}.${oct3}.126`);
     }
+  };
+
+  const resetBulkForm = () => {
+    setBulkCount("10");
+    setBulkVlanStart("100");
+    setBulkPrefix("VLAN-");
+    setBulkSubnetSize("25");
+    setBulkDhcp(true);
+    setBulkResult(null);
+    setBulkCreating(false);
+  };
+
+  const bulkPreview = (() => {
+    const count = parseInt(bulkCount) || 0;
+    const vlanStart = parseInt(bulkVlanStart) || 0;
+    const cidrBits = parseInt(bulkSubnetSize) || 25;
+    const hostBits = 32 - cidrBits;
+    const blockSize = 1 << hostBits;
+    const fmtIp = (ip: number) => `${(ip >>> 24) & 0xFF}.${(ip >>> 16) & 0xFF}.${(ip >>> 8) & 0xFF}.${ip & 0xFF}`;
+
+    const oct2 = Math.floor(vlanStart / 256);
+    const oct3 = vlanStart % 256;
+    let currentBase = ((10 << 24) | (oct2 << 16) | (oct3 << 8)) >>> 0;
+
+    const items: Array<{ vlanId: number; name: string; subnet: string; dhcpRange: string }> = [];
+    const max = Math.min(count, 200);
+    for (let i = 0; i < max; i++) {
+      const vlanId = vlanStart + i;
+      if (vlanId > 4094) break;
+      const gateway = (currentBase + 1) >>> 0;
+      const dhcpStart = (currentBase + 2) >>> 0;
+      const dhcpEnd = (currentBase + blockSize - 2) >>> 0;
+      items.push({
+        vlanId,
+        name: `${bulkPrefix}${vlanId}`,
+        subnet: `${fmtIp(gateway)}/${cidrBits}`,
+        dhcpRange: bulkDhcp ? `${fmtIp(dhcpStart)} - ${fmtIp(dhcpEnd)}` : "Disabled",
+      });
+      currentBase = (currentBase + blockSize) >>> 0;
+    }
+    return items;
+  })();
+
+  const handleBulkCreate = async () => {
+    if (!bulkOpen) return;
+    setBulkCreating(true);
+    setBulkResult(null);
+    try {
+      const res = await apiRequest("POST", "/api/networks/bulk", {
+        controllerId: bulkOpen,
+        count: parseInt(bulkCount),
+        vlanStart: parseInt(bulkVlanStart),
+        namePrefix: bulkPrefix,
+        subnetSize: bulkSubnetSize,
+        dhcpEnabled: bulkDhcp,
+      });
+      const data = await res.json();
+      setBulkResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", bulkOpen] });
+      if (data.succeeded > 0) {
+        toast({ title: `Created ${data.succeeded} network${data.succeeded > 1 ? "s" : ""}`, description: data.failed > 0 ? `${data.failed} failed` : undefined });
+      }
+    } catch (err: any) {
+      toast({ title: "Bulk create failed", description: err.message, variant: "destructive" });
+    }
+    setBulkCreating(false);
   };
 
   return (
@@ -466,6 +544,160 @@ export default function ControllersPage() {
               {createNetworkMutation.isPending ? "Creating..." : "Create Network"}
             </Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!bulkOpen} onOpenChange={(open) => { if (!open) { setBulkOpen(null); resetBulkForm(); } }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Bulk Create Networks</DialogTitle>
+            <DialogDescription>Create multiple VLAN networks at once. Configure the range and review the preview before creating.</DialogDescription>
+          </DialogHeader>
+          {!bulkResult ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Number of Networks</Label>
+                  <Input
+                    type="number"
+                    value={bulkCount}
+                    onChange={(e) => setBulkCount(e.target.value)}
+                    min={1}
+                    max={200}
+                    data-testid="input-bulk-count"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>VLAN Range Start</Label>
+                  <Input
+                    type="number"
+                    value={bulkVlanStart}
+                    onChange={(e) => setBulkVlanStart(e.target.value)}
+                    min={1}
+                    max={4094}
+                    data-testid="input-bulk-vlan-start"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Name Prefix</Label>
+                  <Input
+                    value={bulkPrefix}
+                    onChange={(e) => setBulkPrefix(e.target.value)}
+                    placeholder="e.g., VLAN-"
+                    data-testid="input-bulk-prefix"
+                  />
+                  <p className="text-xs text-muted-foreground">Names will be "{bulkPrefix}{bulkVlanStart}", "{bulkPrefix}{parseInt(bulkVlanStart) + 1}", etc.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Subnet Size</Label>
+                  <Select value={bulkSubnetSize} onValueChange={setBulkSubnetSize}>
+                    <SelectTrigger data-testid="select-bulk-subnet-size">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="25">/25 — 126 hosts</SelectItem>
+                      <SelectItem value="26">/26 — 62 hosts</SelectItem>
+                      <SelectItem value="27">/27 — 30 hosts</SelectItem>
+                      <SelectItem value="28">/28 — 14 hosts</SelectItem>
+                      <SelectItem value="29">/29 — 6 hosts</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="bulk-dhcp"
+                  checked={bulkDhcp}
+                  onChange={(e) => setBulkDhcp(e.target.checked)}
+                  className="rounded"
+                  data-testid="checkbox-bulk-dhcp"
+                />
+                <Label htmlFor="bulk-dhcp" className="cursor-pointer">Enable DHCP on all networks</Label>
+              </div>
+
+              {bulkPreview.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Preview ({bulkPreview.length} networks)</Label>
+                  <ScrollArea className="h-[200px] border rounded-md">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Name</TableHead>
+                          <TableHead className="text-xs">VLAN</TableHead>
+                          <TableHead className="text-xs">Subnet</TableHead>
+                          <TableHead className="text-xs">DHCP Range</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {bulkPreview.map((item) => (
+                          <TableRow key={item.vlanId}>
+                            <TableCell className="text-xs py-1.5">{item.name}</TableCell>
+                            <TableCell className="text-xs py-1.5">{item.vlanId}</TableCell>
+                            <TableCell className="text-xs py-1.5 font-mono">{item.subnet}</TableCell>
+                            <TableCell className="text-xs py-1.5 font-mono">{item.dhcpRange}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                </div>
+              )}
+
+              <Button
+                className="w-full"
+                onClick={handleBulkCreate}
+                disabled={bulkCreating || bulkPreview.length === 0}
+                data-testid="button-bulk-create"
+              >
+                {bulkCreating ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Creating {bulkPreview.length} networks...
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Create {bulkPreview.length} Networks
+                  </>
+                )}
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
+                <div className="text-center flex-1">
+                  <div className="text-2xl font-bold text-green-600">{bulkResult.succeeded}</div>
+                  <div className="text-xs text-muted-foreground">Created</div>
+                </div>
+                {bulkResult.failed > 0 && (
+                  <div className="text-center flex-1">
+                    <div className="text-2xl font-bold text-destructive">{bulkResult.failed}</div>
+                    <div className="text-xs text-muted-foreground">Failed</div>
+                  </div>
+                )}
+                {bulkResult.skipped > 0 && (
+                  <div className="text-center flex-1">
+                    <div className="text-2xl font-bold text-yellow-600">{bulkResult.skipped}</div>
+                    <div className="text-xs text-muted-foreground">Skipped</div>
+                  </div>
+                )}
+              </div>
+              <Progress value={(bulkResult.succeeded / bulkResult.requested) * 100} className="h-2" />
+              {bulkResult.errors.length > 0 && (
+                <ScrollArea className="h-[120px] border rounded-md p-3">
+                  {bulkResult.errors.map((err, i) => (
+                    <p key={i} className="text-xs text-destructive mb-1">{err}</p>
+                  ))}
+                </ScrollArea>
+              )}
+              <Button className="w-full" onClick={() => { setBulkOpen(null); resetBulkForm(); }} data-testid="button-bulk-done">
+                Done
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -637,14 +869,25 @@ export default function ControllersPage() {
                         <Layers className="h-4 w-4" />
                         Networks (VLANs)
                       </h4>
-                      <Button
-                        size="sm"
-                        onClick={() => setAddNetworkOpen(ctrl.id)}
-                        data-testid={`button-add-network-${ctrl.id}`}
-                      >
-                        <Plus className="h-3.5 w-3.5 mr-1" />
-                        Add Network
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setBulkOpen(ctrl.id)}
+                          data-testid={`button-bulk-add-network-${ctrl.id}`}
+                        >
+                          <Copy className="h-3.5 w-3.5 mr-1" />
+                          Bulk Add
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => setAddNetworkOpen(ctrl.id)}
+                          data-testid={`button-add-network-${ctrl.id}`}
+                        >
+                          <Plus className="h-3.5 w-3.5 mr-1" />
+                          Add Network
+                        </Button>
+                      </div>
                     </div>
                     {controllerNetworks && controllerNetworks.length > 0 ? (
                       <Table>

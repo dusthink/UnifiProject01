@@ -741,6 +741,147 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/networks/bulk", requireAdmin, async (req, res) => {
+    try {
+      const { controllerId, namePrefix, subnetSize, dhcpEnabled, siteId: reqSiteId } = req.body;
+      const count = typeof req.body.count === "number" ? req.body.count : parseInt(req.body.count);
+      const vlanStart = typeof req.body.vlanStart === "number" ? req.body.vlanStart : parseInt(req.body.vlanStart);
+      if (!controllerId || !namePrefix || !subnetSize) {
+        return res.status(400).json({ message: "Missing required fields: controllerId, namePrefix, subnetSize" });
+      }
+      if (!Number.isInteger(count) || count < 1 || count > 200) {
+        return res.status(400).json({ message: "Count must be an integer between 1 and 200" });
+      }
+      if (!Number.isInteger(vlanStart) || vlanStart < 1 || vlanStart > 4094) {
+        return res.status(400).json({ message: "VLAN start must be an integer between 1 and 4094" });
+      }
+      const cidrBits = parseInt(subnetSize);
+      if (![25, 26, 27, 28, 29].includes(cidrBits)) {
+        return res.status(400).json({ message: "Subnet size must be one of: /25, /26, /27, /28, /29" });
+      }
+
+      const controller = await storage.getController(controllerId);
+      if (!controller) return res.status(400).json({ message: "Controller not found" });
+
+      const existingNetworks = await storage.getNetworksByController(controllerId);
+      const existingVlans = new Set(existingNetworks.map(n => n.vlanId));
+      const existingNames = new Set(existingNetworks.map(n => n.name.toLowerCase()));
+      const siteId = reqSiteId || "default";
+
+      const hostBits = 32 - cidrBits;
+      const subnetBlockSize = 1 << hostBits;
+
+      const networks: Array<{
+        name: string; vlanId: number; ipSubnet: string;
+        dhcpStart: string; dhcpStop: string; dhcpEnabled: boolean;
+      }> = [];
+
+      let currentSubnetIp = 0;
+      {
+        const firstVlan = parseInt(vlanStart);
+        const oct2 = Math.floor(firstVlan / 256);
+        const oct3 = firstVlan % 256;
+        currentSubnetIp = ((10 << 24) | (oct2 << 16) | (oct3 << 8)) >>> 0;
+      }
+
+      const errors: string[] = [];
+
+      for (let i = 0; i < count; i++) {
+        const vlanId = parseInt(vlanStart) + i;
+        if (vlanId > 4094) {
+          errors.push(`VLAN ${vlanId} exceeds maximum (4094). Stopped at ${i} networks.`);
+          break;
+        }
+        if (existingVlans.has(vlanId)) {
+          errors.push(`VLAN ${vlanId} already exists, skipping.`);
+          currentSubnetIp = (currentSubnetIp + subnetBlockSize) >>> 0;
+          continue;
+        }
+        const name = `${namePrefix}${vlanId}`;
+        if (existingNames.has(name.toLowerCase())) {
+          errors.push(`Name "${name}" already exists, skipping.`);
+          currentSubnetIp = (currentSubnetIp + subnetBlockSize) >>> 0;
+          continue;
+        }
+
+        const gatewayIp = (currentSubnetIp + 1) >>> 0;
+        const o1 = (gatewayIp >>> 24) & 0xFF;
+        const o2 = (gatewayIp >>> 16) & 0xFF;
+        const o3 = (gatewayIp >>> 8) & 0xFF;
+        const o4 = gatewayIp & 0xFF;
+        const ipSubnet = `${o1}.${o2}.${o3}.${o4}/${cidrBits}`;
+
+        const dhcpStartIp = (currentSubnetIp + 2) >>> 0;
+        const dhcpStopIp = (currentSubnetIp + subnetBlockSize - 2) >>> 0;
+        const fmtIp = (ip: number) => `${(ip >>> 24) & 0xFF}.${(ip >>> 16) & 0xFF}.${(ip >>> 8) & 0xFF}.${ip & 0xFF}`;
+
+        const overlap = findSubnetOverlap(ipSubnet, [...existingNetworks, ...networks.map(n => ({ name: n.name, ipSubnet: n.ipSubnet }))]);
+        if (overlap) {
+          errors.push(`Subnet ${ipSubnet} overlaps with "${overlap.name}", skipping VLAN ${vlanId}.`);
+          currentSubnetIp = (currentSubnetIp + subnetBlockSize) >>> 0;
+          continue;
+        }
+
+        networks.push({
+          name, vlanId, ipSubnet,
+          dhcpStart: fmtIp(dhcpStartIp),
+          dhcpStop: fmtIp(dhcpStopIp),
+          dhcpEnabled: dhcpEnabled ?? true,
+        });
+
+        existingVlans.add(vlanId);
+        existingNames.add(name.toLowerCase());
+        currentSubnetIp = (currentSubnetIp + subnetBlockSize) >>> 0;
+      }
+
+      const results: Array<{ name: string; vlanId: number; success: boolean; error?: string }> = [];
+
+      for (const net of networks) {
+        try {
+          let unifiNetworkId: string | null = null;
+          if (controller.isVerified) {
+            const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+            const networkResult = await client.createNetwork(
+              siteId, net.name, net.vlanId, "corporate",
+              { ipSubnet: net.ipSubnet, dhcpEnabled: net.dhcpEnabled, dhcpStart: net.dhcpStart, dhcpStop: net.dhcpStop }
+            );
+            unifiNetworkId = networkResult?.data?.[0]?._id || null;
+            if (!unifiNetworkId) {
+              results.push({ name: net.name, vlanId: net.vlanId, success: false, error: "Controller did not return a network ID" });
+              continue;
+            }
+          }
+
+          await storage.createNetwork({
+            controllerId, name: net.name, vlanId: net.vlanId, purpose: "corporate",
+            ipSubnet: net.ipSubnet, dhcpEnabled: net.dhcpEnabled,
+            dhcpStart: net.dhcpStart, dhcpStop: net.dhcpStop,
+            unifiNetworkId, siteId, isManaged: true,
+          });
+          results.push({ name: net.name, vlanId: net.vlanId, success: true });
+        } catch (err: any) {
+          results.push({ name: net.name, vlanId: net.vlanId, success: false, error: err.message });
+        }
+      }
+
+      const succeeded = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      const skipped = count - networks.length;
+
+      res.json({
+        requested: count,
+        total: networks.length,
+        succeeded,
+        failed,
+        skipped,
+        errors: [...errors, ...results.filter(r => !r.success).map(r => `${r.name}: ${r.error}`)],
+        results,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: `Bulk create failed: ${err.message}` });
+    }
+  });
+
   app.patch("/api/networks/:id", requireAdmin, async (req, res) => {
     const existing = await storage.getNetwork(req.params.id);
     if (!existing) return res.status(404).json({ message: "Network not found" });

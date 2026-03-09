@@ -12,7 +12,8 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - **Admin Portal:** Community/building/unit management, device management, network/VLAN management per controller, VLAN provisioning, WiFi configuration (PPSK or individual SSID), tenant account creation
 - **Tenant Portal:** View WiFi settings, change WiFi password, view connected devices and usage statistics
 - **Multi-Controller Support:** Add/edit/test/manage multiple UniFi controllers, auto-detect UniFi OS vs classic, show hardware model/firmware/uptime, persist discovered sites
-- **UniFi Integration:** Create VLANs, configure port profiles, manage WLANs, discover devices (all per-controller)
+- **UniFi Integration:** Create VLANs (single or bulk), configure port profiles, manage WLANs, discover devices (all per-controller)
+- **Bulk Network Creation:** Create up to 200 VLAN networks at once with configurable VLAN range start, name prefix, subnet size (/25–/29), and DHCP toggle. Live preview table before committing. Skips duplicates gracefully.
 
 ## Authentication
 - **Local auth:** Email/password registration and login (scrypt-hashed passwords)

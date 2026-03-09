@@ -364,7 +364,7 @@ export default function ControllersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!addNetworkOpen} onOpenChange={(open) => { if (!open) { setAddNetworkOpen(null); resetNetworkForm(); } }}>
+      <Dialog open={!!addNetworkOpen} onOpenChange={(open) => { if (!open) { setAddNetworkOpen(null); resetNetworkForm(); createNetworkMutation.reset(); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Network</DialogTitle>
@@ -455,6 +455,11 @@ export default function ControllersPage() {
                     data-testid="input-dhcp-stop"
                   />
                 </div>
+              </div>
+            )}
+            {createNetworkMutation.isError && (
+              <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-3" data-testid="text-network-error">
+                {(createNetworkMutation.error as any)?.message || "Failed to create network"}
               </div>
             )}
             <Button type="submit" className="w-full" disabled={createNetworkMutation.isPending} data-testid="button-submit-network">

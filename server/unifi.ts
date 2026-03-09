@@ -240,19 +240,23 @@ export class UnifiClient {
     }
   }
 
-  async createNetwork(siteId: string, name: string, vlanId: number, purpose: string = "corporate"): Promise<any> {
-    const body = {
+  async createNetwork(siteId: string, name: string, vlanId: number, purpose: string = "corporate", opts?: { ipSubnet?: string; dhcpEnabled?: boolean; dhcpStart?: string; dhcpStop?: string }): Promise<any> {
+    const oct2 = Math.floor(vlanId / 256);
+    const oct3 = vlanId % 256;
+    const body: Record<string, any> = {
       name,
       purpose,
       vlan_enabled: true,
       vlan: vlanId,
-      ip_subnet: `10.${Math.floor(vlanId / 256)}.${vlanId % 256}.1/24`,
-      dhcpd_enabled: true,
-      dhcpd_start: `10.${Math.floor(vlanId / 256)}.${vlanId % 256}.100`,
-      dhcpd_stop: `10.${Math.floor(vlanId / 256)}.${vlanId % 256}.254`,
+      ip_subnet: opts?.ipSubnet || `10.${oct2}.${oct3}.1/25`,
+      dhcpd_enabled: opts?.dhcpEnabled ?? true,
       dhcpd_dns_enabled: false,
       networkgroup: "LAN",
     };
+    if (body.dhcpd_enabled) {
+      body.dhcpd_start = opts?.dhcpStart || `10.${oct2}.${oct3}.2`;
+      body.dhcpd_stop = opts?.dhcpStop || `10.${oct2}.${oct3}.126`;
+    }
     return this.request(`/api/s/${siteId}/rest/networkconf`, "POST", body);
   }
 

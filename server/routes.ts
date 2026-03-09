@@ -7,6 +7,34 @@ import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDe
 import passport from "passport";
 import { randomBytes } from "crypto";
 
+function parseSubnet(cidr: string): { start: number; end: number } | null {
+  const match = cidr.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/);
+  if (!match) return null;
+  const octets = [parseInt(match[1]), parseInt(match[2]), parseInt(match[3]), parseInt(match[4])];
+  if (octets.some(o => o < 0 || o > 255)) return null;
+  const bits = parseInt(match[5]);
+  if (bits < 1 || bits > 30) return null;
+  const ip = ((octets[0] << 24) + (octets[1] << 16) + (octets[2] << 8) + octets[3]) >>> 0;
+  const mask = (~0 << (32 - bits)) >>> 0;
+  const network = (ip & mask) >>> 0;
+  const broadcast = (network | (~mask >>> 0)) >>> 0;
+  return { start: network, end: broadcast };
+}
+
+function findSubnetOverlap(newSubnet: string, existingNetworks: { name: string; ipSubnet: string | null }[]): { name: string; ipSubnet: string } | null {
+  const newRange = parseSubnet(newSubnet);
+  if (!newRange) return null;
+  for (const net of existingNetworks) {
+    if (!net.ipSubnet) continue;
+    const existingRange = parseSubnet(net.ipSubnet);
+    if (!existingRange) continue;
+    if (newRange.start <= existingRange.end && newRange.end >= existingRange.start) {
+      return { name: net.name, ipSubnet: net.ipSubnet };
+    }
+  }
+  return null;
+}
+
 async function getClientForCommunity(communityId: string): Promise<{ client: UnifiClient; siteId: string } | null> {
   const community = await storage.getCommunity(communityId);
   if (!community?.controllerId) return null;
@@ -649,10 +677,31 @@ export async function registerRoutes(
       if (!controller) return res.status(400).json({ message: "Controller not found" });
 
       const existingNetworks = await storage.getNetworksByController(parsed.data.controllerId);
-      const duplicate = existingNetworks.find(n => n.vlanId === parsed.data.vlanId);
-      if (duplicate) {
+
+      const duplicateVlan = existingNetworks.find(n => n.vlanId === parsed.data.vlanId);
+      if (duplicateVlan) {
         return res.status(400).json({
-          message: `VLAN ${parsed.data.vlanId} is already in use by network "${duplicate.name}"${!duplicate.isManaged ? " (controller-managed)" : ""}. Choose a different VLAN ID.`
+          message: `VLAN ${parsed.data.vlanId} is already in use by network "${duplicateVlan.name}"${!duplicateVlan.isManaged ? " (controller-managed)" : ""}. Choose a different VLAN ID.`
+        });
+      }
+
+      const duplicateName = existingNetworks.find(n => n.name.toLowerCase() === parsed.data.name.trim().toLowerCase());
+      if (duplicateName) {
+        return res.status(400).json({
+          message: `A network named "${duplicateName.name}" already exists on this controller. Choose a different name.`
+        });
+      }
+
+      const oct2 = Math.floor(parsed.data.vlanId / 256);
+      const oct3 = parsed.data.vlanId % 256;
+      const effectiveSubnet = parsed.data.ipSubnet || `10.${oct2}.${oct3}.1/25`;
+      if (!parseSubnet(effectiveSubnet)) {
+        return res.status(400).json({ message: `Invalid subnet format: "${effectiveSubnet}". Use CIDR notation like 10.0.1.1/25.` });
+      }
+      const overlap = findSubnetOverlap(effectiveSubnet, existingNetworks);
+      if (overlap) {
+        return res.status(400).json({
+          message: `Subnet ${effectiveSubnet} overlaps with network "${overlap.name}" (${overlap.ipSubnet}). Choose a different subnet.`
         });
       }
 
@@ -665,7 +714,13 @@ export async function registerRoutes(
           siteId,
           parsed.data.name,
           parsed.data.vlanId,
-          parsed.data.purpose || "corporate"
+          parsed.data.purpose || "corporate",
+          {
+            ipSubnet: parsed.data.ipSubnet || undefined,
+            dhcpEnabled: parsed.data.dhcpEnabled ?? true,
+            dhcpStart: parsed.data.dhcpStart || undefined,
+            dhcpStop: parsed.data.dhcpStop || undefined,
+          }
         );
         unifiNetworkId = networkResult?.data?.[0]?._id || null;
         if (!unifiNetworkId) {

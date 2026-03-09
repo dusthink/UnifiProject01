@@ -2,6 +2,8 @@ import https from "https";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import nodeFetch, { type RequestInit, type Response } from "node-fetch";
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 function createAgent(): https.Agent {
   const proxyHost = process.env.PROXY_HOST;
   const proxyPort = process.env.PROXY_PORT;
@@ -13,7 +15,7 @@ function createAgent(): https.Agent {
     const trimmedPass = proxyPass.trim();
     const proxyUrl = `http://${encodeURIComponent(trimmedUser)}:${encodeURIComponent(trimmedPass)}@${proxyHost}:${proxyPort}`;
     console.log(`[unifi] Using HTTP proxy at ${proxyHost}:${proxyPort}`);
-    return new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
+    return new HttpsProxyAgent(proxyUrl);
   }
 
   console.log("[unifi] No proxy configured, connecting directly");

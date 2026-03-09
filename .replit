@@ -40,3 +40,9 @@ waitForPort = 5000
 
 [agent]
 integrations = ["github:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+PROXY_HOST = "185.238.215.49"
+PROXY_PORT = "45819"

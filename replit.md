@@ -57,6 +57,16 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - `SESSION_SECRET` - Session encryption key
 - `GOOGLE_CLIENT_ID` - Google OAuth client ID
 - `GOOGLE_CLIENT_SECRET` - Google OAuth client secret
+- `PROXY_HOST` - Forward proxy IP address (env var)
+- `PROXY_PORT` - Forward proxy port (env var)
+- `PROXY_USERNAME` - Forward proxy auth username (secret)
+- `PROXY_PASSWORD` - Forward proxy auth password (secret)
+
+## Proxy Configuration
+- All UniFi controller API requests are routed through an HTTP forward proxy (ProxyCheap)
+- Configured via `https-proxy-agent` in `server/unifi.ts`
+- Proxy is applied globally to all UnifiClient instances via a shared agent
+- If proxy env vars are missing, connections fall back to direct (no proxy)
 
 ## Default Admin Credentials
 - Username: `admin`

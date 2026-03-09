@@ -1,6 +1,23 @@
 import https from "https";
+import { HttpsProxyAgent } from "https-proxy-agent";
 
-const agent = new https.Agent({ rejectUnauthorized: false });
+function createAgent(): https.Agent {
+  const proxyHost = process.env.PROXY_HOST;
+  const proxyPort = process.env.PROXY_PORT;
+  const proxyUser = process.env.PROXY_USERNAME;
+  const proxyPass = process.env.PROXY_PASSWORD;
+
+  if (proxyHost && proxyPort && proxyUser && proxyPass) {
+    const proxyUrl = `http://${proxyUser}:${proxyPass}@${proxyHost}:${proxyPort}`;
+    console.log(`[unifi] Using HTTP proxy at ${proxyHost}:${proxyPort}`);
+    return new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
+  }
+
+  console.log("[unifi] No proxy configured, connecting directly");
+  return new https.Agent({ rejectUnauthorized: false });
+}
+
+const agent = createAgent();
 
 interface UnifiCookie {
   value: string;

@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Plus, ArrowLeft, Trash2, ChevronRight, Home, Network } from "lucide-react";
+import { Building2, Plus, ArrowLeft, Trash2, ChevronRight, Home, Network, Pencil, Layers } from "lucide-react";
+import { DialogDescription } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -26,6 +27,8 @@ export default function CommunityDetailPage({ id }: { id: string }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [buildingName, setBuildingName] = useState("");
   const [buildingAddress, setBuildingAddress] = useState("");
+  const [buildingFloors, setBuildingFloors] = useState("");
+  const [editBuilding, setEditBuilding] = useState<Building | null>(null);
 
   const { data: community, isLoading: commLoading } = useQuery<Community>({
     queryKey: ["/api/communities", id],
@@ -51,7 +54,7 @@ export default function CommunityDetailPage({ id }: { id: string }) {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; address: string; communityId: string }) => {
+    mutationFn: async (data: { name: string; address: string; floors: number | null; communityId: string }) => {
       const res = await apiRequest("POST", "/api/buildings", data);
       return res.json();
     },
@@ -60,7 +63,23 @@ export default function CommunityDetailPage({ id }: { id: string }) {
       setDialogOpen(false);
       setBuildingName("");
       setBuildingAddress("");
+      setBuildingFloors("");
       toast({ title: "Building added" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: async ({ buildingId, data }: { buildingId: string; data: { name: string; address: string; floors: number | null } }) => {
+      const res = await apiRequest("PATCH", `/api/buildings/${buildingId}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/communities", id, "buildings"] });
+      setEditBuilding(null);
+      toast({ title: "Building updated" });
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -127,7 +146,12 @@ export default function CommunityDetailPage({ id }: { id: string }) {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                createMutation.mutate({ name: buildingName, address: buildingAddress, communityId: id });
+                createMutation.mutate({
+                  name: buildingName,
+                  address: buildingAddress,
+                  floors: buildingFloors ? parseInt(buildingFloors) : null,
+                  communityId: id,
+                });
               }}
               className="space-y-4"
             >
@@ -150,6 +174,18 @@ export default function CommunityDetailPage({ id }: { id: string }) {
                   onChange={(e) => setBuildingAddress(e.target.value)}
                   placeholder="Optional"
                   data-testid="input-building-address"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bldg-floors">Number of Floors</Label>
+                <Input
+                  id="bldg-floors"
+                  type="number"
+                  value={buildingFloors}
+                  onChange={(e) => setBuildingFloors(e.target.value)}
+                  placeholder="e.g., 3"
+                  min={1}
+                  data-testid="input-building-floors"
                 />
               </div>
               <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-building">
@@ -196,24 +232,112 @@ export default function CommunityDetailPage({ id }: { id: string }) {
                   </div>
                   <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
                 </div>
-                <div className="flex justify-end mt-3">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm("Delete this building?")) deleteMutation.mutate(building.id);
-                    }}
-                    data-testid={`button-delete-building-${building.id}`}
-                  >
-                    <Trash2 className="h-4 w-4 text-muted-foreground" />
-                  </Button>
+                <div className="flex items-center justify-between mt-3">
+                  {building.floors ? (
+                    <Badge variant="secondary" data-testid={`badge-floors-${building.id}`}>
+                      <Layers className="h-3 w-3 mr-1" />
+                      {building.floors} {building.floors === 1 ? "floor" : "floors"}
+                    </Badge>
+                  ) : <span />}
+                  <div className="flex gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditBuilding(building);
+                      }}
+                      data-testid={`button-edit-building-${building.id}`}
+                    >
+                      <Pencil className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm("Delete this building?")) deleteMutation.mutate(building.id);
+                      }}
+                      data-testid={`button-delete-building-${building.id}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <Dialog open={!!editBuilding} onOpenChange={(open) => { if (!open) setEditBuilding(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Building</DialogTitle>
+            <DialogDescription>Update the building details.</DialogDescription>
+          </DialogHeader>
+          {editBuilding && (
+            <EditBuildingForm
+              building={editBuilding}
+              onSubmit={(data) => editMutation.mutate({ buildingId: editBuilding.id, data })}
+              isPending={editMutation.isPending}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function EditBuildingForm({ building, onSubmit, isPending }: {
+  building: Building;
+  onSubmit: (data: { name: string; address: string; floors: number | null }) => void;
+  isPending: boolean;
+}) {
+  const [name, setName] = useState(building.name);
+  const [address, setAddress] = useState(building.address || "");
+  const [floors, setFloors] = useState(building.floors?.toString() || "");
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit({ name, address, floors: floors ? parseInt(floors) : null });
+      }}
+      className="space-y-4"
+    >
+      <div className="space-y-2">
+        <Label>Building Name</Label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+          data-testid="input-edit-building-name"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Address</Label>
+        <Input
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder="Optional"
+          data-testid="input-edit-building-address"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Number of Floors</Label>
+        <Input
+          type="number"
+          value={floors}
+          onChange={(e) => setFloors(e.target.value)}
+          placeholder="e.g., 3"
+          min={1}
+          data-testid="input-edit-building-floors"
+        />
+      </div>
+      <Button type="submit" className="w-full" disabled={isPending} data-testid="button-submit-edit-building">
+        {isPending ? "Saving..." : "Save Changes"}
+      </Button>
+    </form>
   );
 }

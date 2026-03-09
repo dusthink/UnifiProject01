@@ -397,7 +397,10 @@ export default function BuildingDetailPage({ id }: { id: string }) {
         </Button>
         <div>
           <h1 className="text-2xl font-bold tracking-tight" data-testid="text-building-name">{building?.name}</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">{building?.address || "No address"}</p>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            {building?.address || "No address"}
+            {building?.floors ? ` · ${building.floors} ${building.floors === 1 ? "floor" : "floors"}` : ""}
+          </p>
         </div>
       </div>
 

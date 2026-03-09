@@ -322,7 +322,9 @@ export async function registerRoutes(
   });
 
   app.patch("/api/buildings/:id", requireAdmin, async (req, res) => {
-    const building = await storage.updateBuilding(req.params.id, req.body);
+    const parsed = insertBuildingSchema.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    const building = await storage.updateBuilding(req.params.id, parsed.data);
     if (!building) return res.status(404).json({ message: "Building not found" });
     res.json(building);
   });

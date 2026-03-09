@@ -174,10 +174,10 @@ export default function ControllersPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editController, setEditController] = useState<Controller | null>(null);
   const [expandedCtrlId, setExpandedCtrlId] = useState<string | null>(null);
-  const [expandedSection, setExpandedSection] = useState<"sites" | "networks" | null>(null);
+  const [expandedSiteId, setExpandedSiteId] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
-  const [addNetworkOpen, setAddNetworkOpen] = useState<string | null>(null);
+  const [addNetworkOpen, setAddNetworkOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
   const [networkName, setNetworkName] = useState("");
   const [networkVlanId, setNetworkVlanId] = useState("");
   const [networkSubnet, setNetworkSubnet] = useState("");
@@ -185,7 +185,7 @@ export default function ControllersPage() {
   const [networkDhcpStart, setNetworkDhcpStart] = useState("");
   const [networkDhcpStop, setNetworkDhcpStop] = useState("");
 
-  const [bulkOpen, setBulkOpen] = useState<string | null>(null);
+  const [bulkOpen, setBulkOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
   const [bulkCount, setBulkCount] = useState("10");
   const [bulkVlanStart, setBulkVlanStart] = useState("100");
   const [bulkPrefix, setBulkPrefix] = useState("VLAN-");
@@ -198,17 +198,18 @@ export default function ControllersPage() {
     queryKey: ["/api/controllers"],
   });
 
-  const isExpanded = (ctrlId: string, section: "sites" | "networks") =>
-    expandedCtrlId === ctrlId && expandedSection === section;
-
-  const toggleSection = (ctrlId: string, section: "sites" | "networks") => {
-    if (expandedCtrlId === ctrlId && expandedSection === section) {
+  const toggleController = (ctrlId: string) => {
+    if (expandedCtrlId === ctrlId) {
       setExpandedCtrlId(null);
-      setExpandedSection(null);
+      setExpandedSiteId(null);
     } else {
       setExpandedCtrlId(ctrlId);
-      setExpandedSection(section);
+      setExpandedSiteId(null);
     }
+  };
+
+  const toggleSite = (siteId: string) => {
+    setExpandedSiteId(expandedSiteId === siteId ? null : siteId);
   };
 
   const { data: sites } = useQuery<any[]>({
@@ -218,17 +219,17 @@ export default function ControllersPage() {
       const res = await fetch(`/api/controllers/${expandedCtrlId}/sites`, { credentials: "include" });
       return res.json();
     },
-    enabled: !!expandedCtrlId && expandedSection === "sites",
+    enabled: !!expandedCtrlId,
   });
 
-  const { data: controllerNetworks } = useQuery<NetworkType[]>({
-    queryKey: ["/api/networks/controller", expandedCtrlId],
+  const { data: siteNetworks } = useQuery<NetworkType[]>({
+    queryKey: ["/api/networks/controller", expandedCtrlId, "site", expandedSiteId],
     queryFn: async () => {
-      if (!expandedCtrlId) return [];
-      const res = await fetch(`/api/networks/controller/${expandedCtrlId}`, { credentials: "include" });
+      if (!expandedCtrlId || !expandedSiteId) return [];
+      const res = await fetch(`/api/networks/controller/${expandedCtrlId}?siteId=${encodeURIComponent(expandedSiteId)}`, { credentials: "include" });
       return res.json();
     },
-    enabled: !!expandedCtrlId && expandedSection === "networks",
+    enabled: !!expandedCtrlId && !!expandedSiteId,
   });
 
   const addMutation = useMutation({
@@ -274,7 +275,7 @@ export default function ControllersPage() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", addNetworkOpen] });
+      queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", expandedCtrlId, "site", expandedSiteId] });
       setAddNetworkOpen(null);
       resetNetworkForm();
       toast({ title: "Network created" });
@@ -287,7 +288,7 @@ export default function ControllersPage() {
       await apiRequest("DELETE", `/api/networks/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", expandedCtrlId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", expandedCtrlId, "site", expandedSiteId] });
       toast({ title: "Network deleted" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -374,7 +375,8 @@ export default function ControllersPage() {
     setBulkResult(null);
     try {
       const res = await apiRequest("POST", "/api/networks/bulk", {
-        controllerId: bulkOpen,
+        controllerId: bulkOpen.controllerId,
+        siteId: bulkOpen.siteId,
         count: parseInt(bulkCount),
         vlanStart: parseInt(bulkVlanStart),
         namePrefix: bulkPrefix,
@@ -383,7 +385,7 @@ export default function ControllersPage() {
       });
       const data = await res.json();
       setBulkResult(data);
-      queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", bulkOpen] });
+      queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", bulkOpen.controllerId, "site", bulkOpen.siteId] });
       if (data.succeeded > 0) {
         toast({ title: `Created ${data.succeeded} network${data.succeeded > 1 ? "s" : ""}`, description: data.failed > 0 ? `${data.failed} failed` : undefined });
       }
@@ -453,7 +455,8 @@ export default function ControllersPage() {
               e.preventDefault();
               if (!addNetworkOpen) return;
               createNetworkMutation.mutate({
-                controllerId: addNetworkOpen,
+                controllerId: addNetworkOpen.controllerId,
+                siteId: addNetworkOpen.siteId,
                 name: networkName,
                 vlanId: parseInt(networkVlanId),
                 ipSubnet: networkSubnet || null,
@@ -780,21 +783,12 @@ export default function ControllersPage() {
                     </Button>
                     <Button
                       size="sm"
-                      variant={isExpanded(ctrl.id, "sites") ? "default" : "outline"}
-                      onClick={() => toggleSection(ctrl.id, "sites")}
+                      variant={expandedCtrlId === ctrl.id ? "default" : "outline"}
+                      onClick={() => toggleController(ctrl.id)}
                       data-testid={`button-expand-controller-${ctrl.id}`}
                     >
                       <Globe className="h-4 w-4 mr-1" />
                       Sites
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={isExpanded(ctrl.id, "networks") ? "default" : "outline"}
-                      onClick={() => toggleSection(ctrl.id, "networks")}
-                      data-testid={`button-networks-controller-${ctrl.id}`}
-                    >
-                      <Layers className="h-4 w-4 mr-1" />
-                      Networks
                     </Button>
                     <Button
                       size="sm"
@@ -827,132 +821,144 @@ export default function ControllersPage() {
                   </div>
                 )}
 
-                {isExpanded(ctrl.id, "sites") && (
+                {expandedCtrlId === ctrl.id && (
                   <div className="mt-4 pt-4 border-t">
-                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                    <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
                       <Globe className="h-4 w-4" />
-                      Discovered Sites
+                      Sites
                     </h4>
                     {sites && sites.length > 0 ? (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Name</TableHead>
-                            <TableHead>ID</TableHead>
-                            <TableHead>Devices</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {sites.map((site: any) => (
-                            <TableRow key={site.name} data-testid={`row-site-${site.name}`}>
-                              <TableCell className="font-medium">{site.desc || site.name}</TableCell>
-                              <TableCell>
-                                <Badge variant="outline">{site.name}</Badge>
-                              </TableCell>
-                              <TableCell>{site.num_new_alarms ?? "—"}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                      <div className="space-y-2">
+                        {sites.map((site: any) => {
+                          const siteKey = site.name || site._id;
+                          const siteName = site.desc || site.description || site.name;
+                          const isSiteExpanded = expandedSiteId === siteKey;
+                          return (
+                            <div key={siteKey} className="border rounded-lg" data-testid={`card-site-${siteKey}`}>
+                              <div
+                                className="flex items-center justify-between p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                                onClick={() => toggleSite(siteKey)}
+                                data-testid={`button-toggle-site-${siteKey}`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <Globe className="h-4 w-4 text-muted-foreground" />
+                                  <span className="font-medium text-sm">{siteName}</span>
+                                  <Badge variant="outline" className="text-xs">{siteKey}</Badge>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant={isSiteExpanded ? "default" : "outline"}
+                                    onClick={(e) => { e.stopPropagation(); toggleSite(siteKey); }}
+                                    data-testid={`button-networks-site-${siteKey}`}
+                                  >
+                                    <Layers className="h-3.5 w-3.5 mr-1" />
+                                    Networks
+                                  </Button>
+                                </div>
+                              </div>
+                              {isSiteExpanded && (
+                                <div className="border-t p-3">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <h5 className="text-xs font-medium flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
+                                      <Layers className="h-3.5 w-3.5" />
+                                      Networks (VLANs)
+                                    </h5>
+                                    <div className="flex gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => setBulkOpen({ controllerId: ctrl.id, siteId: siteKey })}
+                                        data-testid={`button-bulk-add-network-${siteKey}`}
+                                      >
+                                        <Copy className="h-3.5 w-3.5 mr-1" />
+                                        Bulk Add
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        onClick={() => setAddNetworkOpen({ controllerId: ctrl.id, siteId: siteKey })}
+                                        data-testid={`button-add-network-${siteKey}`}
+                                      >
+                                        <Plus className="h-3.5 w-3.5 mr-1" />
+                                        Add Network
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  {siteNetworks && siteNetworks.length > 0 ? (
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead>Name</TableHead>
+                                          <TableHead>VLAN</TableHead>
+                                          <TableHead>Subnet</TableHead>
+                                          <TableHead>DHCP</TableHead>
+                                          <TableHead>Source</TableHead>
+                                          <TableHead className="w-[60px]">Actions</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {siteNetworks.map((net) => (
+                                          <TableRow key={net.id} className={!net.isManaged ? "opacity-75" : ""} data-testid={`row-network-${net.id}`}>
+                                            <TableCell className="font-medium" data-testid={`text-network-name-${net.id}`}>{net.name}</TableCell>
+                                            <TableCell>
+                                              <Badge variant="secondary" data-testid={`badge-vlan-${net.id}`}>VLAN {net.vlanId}</Badge>
+                                            </TableCell>
+                                            <TableCell className="text-sm text-muted-foreground font-mono">{net.ipSubnet || "—"}</TableCell>
+                                            <TableCell>
+                                              {net.dhcpEnabled ? (
+                                                <span className="text-xs text-muted-foreground">
+                                                  {net.dhcpStart} - {net.dhcpStop}
+                                                </span>
+                                              ) : (
+                                                <span className="text-xs text-muted-foreground">Disabled</span>
+                                              )}
+                                            </TableCell>
+                                            <TableCell>
+                                              {net.isManaged ? (
+                                                <Badge variant="outline" className="text-xs" data-testid={`badge-source-${net.id}`}>Web UI</Badge>
+                                              ) : (
+                                                <Badge variant="outline" className="text-xs bg-muted" data-testid={`badge-source-${net.id}`}>
+                                                  <Lock className="h-3 w-3 mr-1" />
+                                                  Controller
+                                                </Badge>
+                                              )}
+                                            </TableCell>
+                                            <TableCell>
+                                              {net.isManaged ? (
+                                                <Button
+                                                  size="icon"
+                                                  variant="ghost"
+                                                  onClick={() => {
+                                                    if (confirm("Delete this network? This will also remove it from the UniFi controller.")) {
+                                                      deleteNetworkMutation.mutate(net.id);
+                                                    }
+                                                  }}
+                                                  data-testid={`button-delete-network-${net.id}`}
+                                                >
+                                                  <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                                </Button>
+                                              ) : (
+                                                <span className="text-xs text-muted-foreground px-2" title="Controller-managed networks cannot be modified here">—</span>
+                                              )}
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  ) : (
+                                    <p className="text-sm text-muted-foreground py-4 text-center">
+                                      No networks found. Add a network or test the controller connection to discover existing networks.
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     ) : (
                       <p className="text-sm text-muted-foreground py-4 text-center">
                         {ctrl.isVerified ? "No sites found" : "Test connection first to discover sites"}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {isExpanded(ctrl.id, "networks") && (
-                  <div className="mt-4 pt-4 border-t">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-sm font-medium flex items-center gap-2">
-                        <Layers className="h-4 w-4" />
-                        Networks (VLANs)
-                      </h4>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setBulkOpen(ctrl.id)}
-                          data-testid={`button-bulk-add-network-${ctrl.id}`}
-                        >
-                          <Copy className="h-3.5 w-3.5 mr-1" />
-                          Bulk Add
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => setAddNetworkOpen(ctrl.id)}
-                          data-testid={`button-add-network-${ctrl.id}`}
-                        >
-                          <Plus className="h-3.5 w-3.5 mr-1" />
-                          Add Network
-                        </Button>
-                      </div>
-                    </div>
-                    {controllerNetworks && controllerNetworks.length > 0 ? (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Name</TableHead>
-                            <TableHead>VLAN</TableHead>
-                            <TableHead>Subnet</TableHead>
-                            <TableHead>DHCP</TableHead>
-                            <TableHead>Source</TableHead>
-                            <TableHead className="w-[60px]">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {controllerNetworks.map((net) => (
-                            <TableRow key={net.id} className={!net.isManaged ? "opacity-75" : ""} data-testid={`row-network-${net.id}`}>
-                              <TableCell className="font-medium" data-testid={`text-network-name-${net.id}`}>{net.name}</TableCell>
-                              <TableCell>
-                                <Badge variant="secondary" data-testid={`badge-vlan-${net.id}`}>VLAN {net.vlanId}</Badge>
-                              </TableCell>
-                              <TableCell className="text-sm text-muted-foreground font-mono">{net.ipSubnet || "—"}</TableCell>
-                              <TableCell>
-                                {net.dhcpEnabled ? (
-                                  <span className="text-xs text-muted-foreground">
-                                    {net.dhcpStart} - {net.dhcpStop}
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">Disabled</span>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {net.isManaged ? (
-                                  <Badge variant="outline" className="text-xs" data-testid={`badge-source-${net.id}`}>Web UI</Badge>
-                                ) : (
-                                  <Badge variant="outline" className="text-xs bg-muted" data-testid={`badge-source-${net.id}`}>
-                                    <Lock className="h-3 w-3 mr-1" />
-                                    Controller
-                                  </Badge>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {net.isManaged ? (
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    onClick={() => {
-                                      if (confirm("Delete this network? This will also remove it from the UniFi controller.")) {
-                                        deleteNetworkMutation.mutate(net.id);
-                                      }
-                                    }}
-                                    data-testid={`button-delete-network-${net.id}`}
-                                  >
-                                    <Trash2 className="h-4 w-4 text-muted-foreground" />
-                                  </Button>
-                                ) : (
-                                  <span className="text-xs text-muted-foreground px-2" title="Controller-managed networks cannot be modified here">—</span>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    ) : (
-                      <p className="text-sm text-muted-foreground py-4 text-center">
-                        No networks found. Add a network or test the controller connection to discover existing networks.
                       </p>
                     )}
                   </div>

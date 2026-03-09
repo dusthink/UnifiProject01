@@ -67,6 +67,7 @@ export interface IStorage {
   deleteController(id: string): Promise<void>;
 
   getNetworksByController(controllerId: string): Promise<Network[]>;
+  getNetworksByControllerAndSite(controllerId: string, siteId: string): Promise<Network[]>;
   getNetwork(id: string): Promise<Network | undefined>;
   createNetwork(data: InsertNetwork): Promise<Network>;
   updateNetwork(id: string, data: Partial<InsertNetwork>): Promise<Network | undefined>;
@@ -284,6 +285,12 @@ export class DatabaseStorage implements IStorage {
 
   async getNetworksByController(controllerId: string): Promise<Network[]> {
     return db.select().from(networks).where(eq(networks.controllerId, controllerId));
+  }
+
+  async getNetworksByControllerAndSite(controllerId: string, siteId: string): Promise<Network[]> {
+    return db.select().from(networks).where(
+      and(eq(networks.controllerId, controllerId), eq(networks.siteId, siteId))
+    );
   }
 
   async getNetwork(id: string): Promise<Network | undefined> {

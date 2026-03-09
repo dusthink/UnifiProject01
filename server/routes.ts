@@ -655,11 +655,11 @@ export async function registerRoutes(
         }
       }
 
-      const updatedNetworks = await storage.getNetworksByController(controllerId);
+      const updatedNetworks = await storage.getNetworksByControllerAndSite(controllerId, siteId);
       res.json(updatedNetworks);
     } catch (err: any) {
       console.error(`[networks] Error syncing networks: ${err.message}`);
-      const fallback = await storage.getNetworksByController(req.params.controllerId);
+      const fallback = await storage.getNetworksByControllerAndSite(req.params.controllerId, (req.query.siteId as string) || "default");
       res.json(fallback);
     }
   });

@@ -137,10 +137,11 @@ export default function BuildingDetailPage({ id }: { id: string }) {
   });
 
   const { data: controllerNetworks } = useQuery<Network[]>({
-    queryKey: ["/api/networks/controller", community?.controllerId],
+    queryKey: ["/api/networks/controller", community?.controllerId, "site", community?.unifiSiteId || "default"],
     queryFn: async () => {
       if (!community?.controllerId) return [];
-      const res = await fetch(`/api/networks/controller/${community.controllerId}`, { credentials: "include" });
+      const siteId = community.unifiSiteId || "default";
+      const res = await fetch(`/api/networks/controller/${community.controllerId}?siteId=${encodeURIComponent(siteId)}`, { credentials: "include" });
       return res.json();
     },
     enabled: !!community?.controllerId,

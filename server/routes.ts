@@ -240,6 +240,12 @@ export async function registerRoutes(
     res.json(safeUser);
   });
 
+  app.get("/api/admin/tenant-users", requireAdmin, async (req, res) => {
+    const tenants = await storage.getUsersByRole("tenant");
+    const safeTenants = tenants.map(({ password, ...rest }) => rest);
+    res.json(safeTenants);
+  });
+
   app.get("/api/communities", requireAdmin, async (req, res) => {
     const result = await storage.getCommunities();
     res.json(result);
@@ -316,12 +322,38 @@ export async function registerRoutes(
   app.post("/api/units", requireAdmin, async (req, res) => {
     const parsed = insertUnitSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
-    const unit = await storage.createUnit(parsed.data);
+    const data = { ...parsed.data, tenantName: null as string | null, tenantEmail: null as string | null | undefined };
+    if (data.tenantId) {
+      const tenant = await storage.getUser(data.tenantId);
+      if (!tenant || tenant.role !== "tenant") {
+        return res.status(400).json({ message: "Invalid tenant: user not found or is not a tenant" });
+      }
+      data.tenantName = tenant.displayName || tenant.username;
+      data.tenantEmail = tenant.email || undefined;
+    }
+    const unit = await storage.createUnit(data);
     res.status(201).json(unit);
   });
 
   app.patch("/api/units/:id", requireAdmin, async (req, res) => {
-    const unit = await storage.updateUnit(req.params.id, req.body);
+    const updateData = { ...req.body };
+    delete updateData.tenantName;
+    delete updateData.tenantEmail;
+    if ("tenantId" in updateData) {
+      if (updateData.tenantId) {
+        const tenant = await storage.getUser(updateData.tenantId);
+        if (!tenant || tenant.role !== "tenant") {
+          return res.status(400).json({ message: "Invalid tenant: user not found or is not a tenant" });
+        }
+        updateData.tenantName = tenant.displayName || tenant.username;
+        updateData.tenantEmail = tenant.email || null;
+      } else {
+        updateData.tenantId = null;
+        updateData.tenantName = null;
+        updateData.tenantEmail = null;
+      }
+    }
+    const unit = await storage.updateUnit(req.params.id, updateData);
     if (!unit) return res.status(404).json({ message: "Unit not found" });
     res.json(unit);
   });

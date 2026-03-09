@@ -9,20 +9,26 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Plus, Trash2, Wifi, Shield, CheckCircle2, XCircle, Zap, Settings } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Wifi, Shield, CheckCircle2, XCircle, Zap, Settings, Monitor } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Building, Unit, Device, UnitDevicePort } from "@shared/schema";
+import type { Building, Unit, Device, UnitDevicePort, User } from "@shared/schema";
 
-function UnitRow({ unit, devices, onDelete, onProvision, onDeprovision, onEdit }: {
+type SafeUser = Omit<User, "password">;
+
+function UnitRow({ unit, devices, tenants, onDelete, onProvision, onDeprovision, onEdit }: {
   unit: Unit;
   devices: Device[];
+  tenants: SafeUser[];
   onDelete: (id: string) => void;
   onProvision: (id: string) => void;
   onDeprovision: (id: string) => void;
   onEdit: (unit: Unit) => void;
 }) {
+  const tenant = unit.tenantId ? tenants.find(t => t.id === unit.tenantId) : null;
+  const displayTenant = tenant ? (tenant.displayName || tenant.username) : unit.tenantName;
+
   return (
     <TableRow data-testid={`row-unit-${unit.id}`}>
       <TableCell className="font-medium">{unit.unitNumber}</TableCell>
@@ -44,7 +50,7 @@ function UnitRow({ unit, devices, onDelete, onProvision, onDeprovision, onEdit }
         </div>
       </TableCell>
       <TableCell className="max-w-[120px] truncate">{unit.wifiSsid || "-"}</TableCell>
-      <TableCell className="max-w-[100px] truncate">{unit.tenantName || "-"}</TableCell>
+      <TableCell className="max-w-[100px] truncate" data-testid={`text-tenant-${unit.id}`}>{displayTenant || "-"}</TableCell>
       <TableCell>
         {unit.isProvisioned ? (
           <Badge variant="default" className="bg-status-online/15 text-status-online border-0">
@@ -93,8 +99,8 @@ export default function BuildingDetailPage({ id }: { id: string }) {
   const [wifiMode, setWifiMode] = useState("ppsk");
   const [wifiSsid, setWifiSsid] = useState("");
   const [wifiPassword, setWifiPassword] = useState("");
-  const [tenantName, setTenantName] = useState("");
-  const [tenantEmail, setTenantEmail] = useState("");
+  const [selectedTenantId, setSelectedTenantId] = useState("");
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
 
   const { data: building, isLoading: bldgLoading } = useQuery<Building>({
     queryKey: ["/api/buildings", id],
@@ -113,13 +119,41 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     queryKey: ["/api/devices"],
   });
 
+  const { data: tenants } = useQuery<SafeUser[]>({
+    queryKey: ["/api/admin/tenant-users"],
+  });
+
+  const { data: allPortAssignments } = useQuery<Record<string, UnitDevicePort[]>>({
+    queryKey: ["/api/buildings", id, "port-assignments"],
+    queryFn: async () => {
+      if (!units?.length) return {};
+      const result: Record<string, UnitDevicePort[]> = {};
+      await Promise.all(
+        units.map(async (unit) => {
+          const res = await fetch(`/api/units/${unit.id}/ports`, { credentials: "include" });
+          if (res.ok) result[unit.id] = await res.json();
+        })
+      );
+      return result;
+    },
+    enabled: !!units?.length,
+  });
+
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await apiRequest("POST", "/api/units", data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (newUnit: Unit) => {
+      if (selectedDeviceIds.length > 0) {
+        await Promise.all(
+          selectedDeviceIds.map((deviceId) =>
+            apiRequest("POST", "/api/port-assignments", { unitId: newUnit.id, deviceId, portNumber: 1 })
+          )
+        );
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "units"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "port-assignments"] });
       setAddOpen(false);
       resetForm();
       toast({ title: "Unit added" });
@@ -128,12 +162,25 @@ export default function BuildingDetailPage({ id }: { id: string }) {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ unitId, data }: { unitId: string; data: any }) => {
+    mutationFn: async ({ unitId, data, deviceIds }: { unitId: string; data: any; deviceIds: string[] }) => {
       const res = await apiRequest("PATCH", `/api/units/${unitId}`, data);
+      const existingAssignments = allPortAssignments?.[unitId] || [];
+      const existingDeviceIds = existingAssignments.map(a => a.deviceId);
+      const toAdd = deviceIds.filter(dId => !existingDeviceIds.includes(dId));
+      const toRemove = existingAssignments.filter(a => !deviceIds.includes(a.deviceId));
+      await Promise.all([
+        ...toAdd.map(deviceId =>
+          apiRequest("POST", "/api/port-assignments", { unitId, deviceId, portNumber: 1 })
+        ),
+        ...toRemove.map(a =>
+          apiRequest("DELETE", `/api/port-assignments/${a.id}`)
+        ),
+      ]);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "units"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "port-assignments"] });
       setEditOpen(false);
       setEditUnit(null);
       toast({ title: "Unit updated" });
@@ -147,6 +194,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "units"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "port-assignments"] });
       toast({ title: "Unit deleted" });
     },
   });
@@ -181,8 +229,8 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     setWifiMode("ppsk");
     setWifiSsid("");
     setWifiPassword("");
-    setTenantName("");
-    setTenantEmail("");
+    setSelectedTenantId("");
+    setSelectedDeviceIds([]);
   };
 
   const openEdit = (unit: Unit) => {
@@ -192,10 +240,13 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     setWifiMode(unit.wifiMode || "ppsk");
     setWifiSsid(unit.wifiSsid || "");
     setWifiPassword(unit.wifiPassword || "");
-    setTenantName(unit.tenantName || "");
-    setTenantEmail(unit.tenantEmail || "");
+    setSelectedTenantId(unit.tenantId || "");
+    const assignments = allPortAssignments?.[unit.id] || [];
+    setSelectedDeviceIds(assignments.map(a => a.deviceId));
     setEditOpen(true);
   };
+
+  const buildingDevices = devices?.filter(d => d.buildingId === id) || [];
 
   if (bldgLoading || unitsLoading) {
     return (
@@ -205,6 +256,14 @@ export default function BuildingDetailPage({ id }: { id: string }) {
       </div>
     );
   }
+
+  const toggleDevice = (deviceId: string) => {
+    setSelectedDeviceIds(prev =>
+      prev.includes(deviceId)
+        ? prev.filter(id => id !== deviceId)
+        : [...prev, deviceId]
+    );
+  };
 
   const UnitFormFields = () => (
     <>
@@ -240,16 +299,52 @@ export default function BuildingDetailPage({ id }: { id: string }) {
           <Input value={wifiPassword} onChange={(e) => setWifiPassword(e.target.value)} placeholder="Min 8 characters" data-testid="input-wifi-password" />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>Tenant Name</Label>
-          <Input value={tenantName} onChange={(e) => setTenantName(e.target.value)} placeholder="Optional" data-testid="input-tenant-name" />
-        </div>
-        <div className="space-y-2">
-          <Label>Tenant Email</Label>
-          <Input type="email" value={tenantEmail} onChange={(e) => setTenantEmail(e.target.value)} placeholder="Optional" data-testid="input-tenant-email" />
-        </div>
+      <div className="space-y-2">
+        <Label>Tenant</Label>
+        <Select value={selectedTenantId} onValueChange={setSelectedTenantId}>
+          <SelectTrigger data-testid="select-tenant">
+            <SelectValue placeholder="No tenant assigned" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">No tenant assigned</SelectItem>
+            {tenants?.map((t) => (
+              <SelectItem key={t.id} value={t.id} data-testid={`option-tenant-${t.id}`}>
+                {t.displayName || t.username}{t.email ? ` (${t.email})` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
+      {buildingDevices.length > 0 && (
+        <div className="space-y-2">
+          <Label>Assigned Devices</Label>
+          <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-3">
+            {buildingDevices.map((device) => {
+              const isSelected = selectedDeviceIds.includes(device.id);
+              return (
+                <label
+                  key={device.id}
+                  className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors ${isSelected ? "bg-primary/10" : "hover:bg-accent"}`}
+                  data-testid={`device-option-${device.id}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleDevice(device.id)}
+                    className="rounded"
+                    data-testid={`checkbox-device-${device.id}`}
+                  />
+                  <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{device.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{device.macAddress}{device.model ? ` · ${device.model}` : ""}</p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -288,8 +383,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                   wifiMode,
                   wifiSsid: wifiSsid || null,
                   wifiPassword: wifiPassword || null,
-                  tenantName: tenantName || null,
-                  tenantEmail: tenantEmail || null,
+                  tenantId: selectedTenantId && selectedTenantId !== "none" ? selectedTenantId : null,
                 });
               }}
               className="space-y-4"
@@ -320,9 +414,9 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                   wifiMode,
                   wifiSsid: wifiSsid || null,
                   wifiPassword: wifiPassword || null,
-                  tenantName: tenantName || null,
-                  tenantEmail: tenantEmail || null,
+                  tenantId: selectedTenantId && selectedTenantId !== "none" ? selectedTenantId : null,
                 },
+                deviceIds: selectedDeviceIds,
               });
             }}
             className="space-y-4"
@@ -363,6 +457,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                       key={unit.id}
                       unit={unit}
                       devices={devices || []}
+                      tenants={tenants || []}
                       onDelete={(uid) => { if (confirm("Delete this unit?")) deleteMutation.mutate(uid); }}
                       onProvision={(uid) => provisionMutation.mutate(uid)}
                       onDeprovision={(uid) => deprovisionMutation.mutate(uid)}

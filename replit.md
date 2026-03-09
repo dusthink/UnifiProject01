@@ -29,11 +29,11 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 ## Data Model
 - Controllers (id, name, url, username, password, isVerified, lastConnectedAt, isUnifiOs, hardwareModel, firmwareVersion, hostname, macAddress, uptimeSeconds)
 - Sites (id, controllerId, unifiSiteId, name, description, deviceCount, isDefault) — persisted from UniFi on successful test
-- Users (admin/tenant roles, optional Google ID, email, avatar)
+- Users (admin/tenant roles, optional Google ID, email, avatar, tosAcceptedAt)
 - InviteTokens (token, unitId, email, expiresAt, usedAt, createdBy)
-- Communities (has controllerId FK, unifiSiteId) → Buildings → Units (hierarchical)
-- Devices (UniFi switches/APs)
-- UnitDevicePorts (port-to-unit assignments)
+- Communities (has controllerId FK, unifiSiteId) → Buildings → Units (hierarchical, tenantId FK to users)
+- Devices (UniFi switches/APs, linked to buildings)
+- UnitDevicePorts (device-to-unit assignments for provisioning)
 
 ## Multi-Controller Architecture
 - `controllers` table stores connection details + hardware info for each UniFi controller

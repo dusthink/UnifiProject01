@@ -69,6 +69,7 @@ export const units = pgTable("units", {
   wifiMode: wifiModeEnum("wifi_mode").default("ppsk"),
   wifiSsid: text("wifi_ssid"),
   wifiPassword: text("wifi_password"),
+  tenantId: varchar("tenant_id"),
   tenantName: text("tenant_name"),
   tenantEmail: text("tenant_email"),
   isProvisioned: boolean("is_provisioned").default(false),

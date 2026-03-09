@@ -9,7 +9,9 @@ function createAgent(): https.Agent {
   const proxyPass = process.env.PROXY_PASSWORD;
 
   if (proxyHost && proxyPort && proxyUser && proxyPass) {
-    const proxyUrl = `http://${proxyUser}:${proxyPass}@${proxyHost}:${proxyPort}`;
+    const trimmedUser = proxyUser.trim();
+    const trimmedPass = proxyPass.trim();
+    const proxyUrl = `http://${encodeURIComponent(trimmedUser)}:${encodeURIComponent(trimmedPass)}@${proxyHost}:${proxyPort}`;
     console.log(`[unifi] Using HTTP proxy at ${proxyHost}:${proxyPort}`);
     return new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
   }

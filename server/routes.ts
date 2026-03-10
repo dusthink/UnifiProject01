@@ -1126,11 +1126,8 @@ export async function registerRoutes(
 
       const settings = await storage.getBackupSettings(controller.id);
       const schedule = settings?.schedule || "daily";
-      const retentionDays: Record<string, number> = { daily: 7, weekly: 30, monthly: 180 };
-      const retention = retentionDays[schedule] || 7;
 
       const now = new Date();
-      const expiresAt = new Date(now.getTime() + retention * 86400000);
       const filename = `backup_${controller.name.replace(/[^a-zA-Z0-9]/g, "_")}_${now.toISOString().replace(/[:.]/g, "-")}.unf`;
 
       const backup = await storage.createBackup({
@@ -1139,9 +1136,10 @@ export async function registerRoutes(
         fileData: base64Data,
         fileSize: fileBuffer.length,
         createdAt: now,
-        expiresAt,
         schedule,
       });
+
+      await storage.trimBackupsForController(controller.id, 14);
 
       if (settings) {
         const intervalMs: Record<string, number> = { daily: 86400000, weekly: 604800000, monthly: 2592000000 };
@@ -1410,10 +1408,7 @@ export async function registerRoutes(
           const fileBuffer = await client.downloadBackup(url);
           const base64Data = fileBuffer.toString("base64");
 
-          const retentionDays: Record<string, number> = { daily: 7, weekly: 30, monthly: 180 };
           const intervalMs: Record<string, number> = { daily: 86400000, weekly: 604800000, monthly: 2592000000 };
-          const retention = retentionDays[settings.schedule] || 7;
-          const expiresAt = new Date(now.getTime() + retention * 86400000);
           const filename = `backup_${controller.name.replace(/[^a-zA-Z0-9]/g, "_")}_${now.toISOString().replace(/[:.]/g, "-")}.unf`;
 
           await storage.createBackup({
@@ -1422,9 +1417,10 @@ export async function registerRoutes(
             fileData: base64Data,
             fileSize: fileBuffer.length,
             createdAt: now,
-            expiresAt,
             schedule: settings.schedule,
           });
+
+          await storage.trimBackupsForController(controller.id, 14);
 
           await storage.updateBackupSettings(controller.id, {
             lastBackupAt: now,
@@ -1436,8 +1432,6 @@ export async function registerRoutes(
           console.error(`[backup] Failed for controller ${settings.controllerId}: ${err.message}`);
         }
       }
-
-      await storage.deleteExpiredBackups();
     } catch (err: any) {
       console.error(`[backup] Scheduler error: ${err.message}`);
     }

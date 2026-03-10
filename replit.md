@@ -40,9 +40,9 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 
 ## Controller Backups
 - **Tables:** `controller_backups` (stores backup file data as base64) and `controller_backup_settings` (enabled, schedule, consent tracking)
-- **Consent Flow:** First-time enable shows security warning dialog; user must accept before backups can be enabled. Consent tracked with `consentAcceptedAt` / `consentAcceptedBy`
-- **Schedules:** daily (7-day retention), weekly (30-day retention), monthly (180-day retention)
-- **Scheduler:** 60-second interval checks `nextBackupAt` for all enabled settings; triggers backup, stores file, updates timestamps, cleans expired backups
+- **Consent Flow:** First-time enable or first manual backup shows security warning dialog; user must accept before any backup can proceed. Consent tracked with `consentAcceptedAt` / `consentAcceptedBy`
+- **Retention:** Fixed cap of 14 backups per controller (oldest deleted when exceeded). Daily = 14 days, weekly = 14 weeks, monthly = 14 months retention
+- **Scheduler:** 60-second interval checks `nextBackupAt` for all enabled settings; triggers backup, stores file, trims to 14 max, updates timestamps
 - **Manual backup:** "Backup Now" button triggers immediate backup via UniFi API `cmd/backup`
 - **Download:** Backups stored as base64 in DB, served as binary download via `/api/backups/:id/download`
 - **Routes:** GET/PUT `/api/controllers/:id/backup-settings`, GET `/api/controllers/:id/backups`, POST `/api/controllers/:id/backups/trigger`, GET `/api/backups/:id/download`, DELETE `/api/backups/:id`

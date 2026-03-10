@@ -277,7 +277,6 @@ interface BackupEntry {
   filename: string;
   fileSize: number;
   createdAt: string;
-  expiresAt: string;
   schedule: string;
 }
 
@@ -423,7 +422,7 @@ function BackupDialog({ controller, open, onOpenChange }: { controller: Controll
     link.click();
   };
 
-  const retentionLabels: Record<string, string> = { daily: "7 days", weekly: "30 days", monthly: "180 days" };
+  const retentionLabels: Record<string, string> = { daily: "14 days", weekly: "14 weeks", monthly: "14 months" };
 
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -524,7 +523,6 @@ function BackupDialog({ controller, open, onOpenChange }: { controller: Controll
                         <TableHead>Filename</TableHead>
                         <TableHead>Size</TableHead>
                         <TableHead>Created</TableHead>
-                        <TableHead>Expires</TableHead>
                         <TableHead className="w-[100px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -534,7 +532,6 @@ function BackupDialog({ controller, open, onOpenChange }: { controller: Controll
                           <TableCell className="font-mono text-xs" data-testid={`text-backup-filename-${b.id}`}>{b.filename}</TableCell>
                           <TableCell className="text-xs">{formatFileSize(b.fileSize)}</TableCell>
                           <TableCell className="text-xs">{new Date(b.createdAt).toLocaleString()}</TableCell>
-                          <TableCell className="text-xs">{new Date(b.expiresAt).toLocaleString()}</TableCell>
                           <TableCell>
                             <div className="flex gap-1">
                               <Button

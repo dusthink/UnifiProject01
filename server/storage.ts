@@ -97,7 +97,7 @@ export interface IStorage {
   getBackup(id: string): Promise<ControllerBackup | undefined>;
   createBackup(data: InsertControllerBackup): Promise<ControllerBackup>;
   deleteBackup(id: string): Promise<void>;
-  deleteExpiredBackups(): Promise<number>;
+  trimBackupsForController(controllerId: string, maxBackups: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -403,16 +403,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getBackupsByController(controllerId: string): Promise<ControllerBackup[]> {
-    return db.select({
-      id: controllerBackups.id,
-      controllerId: controllerBackups.controllerId,
-      filename: controllerBackups.filename,
-      fileData: controllerBackups.fileData,
-      fileSize: controllerBackups.fileSize,
-      createdAt: controllerBackups.createdAt,
-      expiresAt: controllerBackups.expiresAt,
-      schedule: controllerBackups.schedule,
-    }).from(controllerBackups).where(eq(controllerBackups.controllerId, controllerId));
+    return db.select().from(controllerBackups)
+      .where(eq(controllerBackups.controllerId, controllerId))
+      .orderBy(sql`${controllerBackups.createdAt} DESC`);
   }
 
   async getBackup(id: string): Promise<ControllerBackup | undefined> {
@@ -429,13 +422,16 @@ export class DatabaseStorage implements IStorage {
     await db.delete(controllerBackups).where(eq(controllerBackups.id, id));
   }
 
-  async deleteExpiredBackups(): Promise<number> {
-    const now = new Date();
-    const expired = await db.select({ id: controllerBackups.id }).from(controllerBackups).where(sql`${controllerBackups.expiresAt} < ${now}`);
-    for (const b of expired) {
+  async trimBackupsForController(controllerId: string, maxBackups: number): Promise<number> {
+    const all = await db.select({ id: controllerBackups.id, createdAt: controllerBackups.createdAt })
+      .from(controllerBackups)
+      .where(eq(controllerBackups.controllerId, controllerId))
+      .orderBy(sql`${controllerBackups.createdAt} DESC`);
+    const toDelete = all.slice(maxBackups);
+    for (const b of toDelete) {
       await db.delete(controllerBackups).where(eq(controllerBackups.id, b.id));
     }
-    return expired.length;
+    return toDelete.length;
   }
 }
 

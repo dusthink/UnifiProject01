@@ -140,7 +140,6 @@ export const controllerBackups = pgTable("controller_backups", {
   fileData: text("file_data").notNull(),
   fileSize: integer("file_size").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-  expiresAt: timestamp("expires_at").notNull(),
   schedule: text("schedule").notNull(),
 });
 

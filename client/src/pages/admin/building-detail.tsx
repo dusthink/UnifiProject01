@@ -9,11 +9,29 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Plus, Trash2, Wifi, Shield, CheckCircle2, XCircle, Zap, Settings, Monitor } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Wifi, Shield, CheckCircle2, XCircle, Zap, Settings, Monitor, Radio, ArrowLeftRight, Router } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Building, Unit, Device, UnitDevicePort, User, Community, Network } from "@shared/schema";
+
+const deviceTypeLabels: Record<string, string> = {
+  switch: "Switch",
+  access_point: "AP",
+  hybrid: "Hybrid",
+  gateway: "Gateway",
+  other: "Device",
+};
+
+function DeviceIcon({ type, className = "h-4 w-4" }: { type?: string | null; className?: string }) {
+  switch (type) {
+    case "switch": return <ArrowLeftRight className={className} />;
+    case "access_point": return <Radio className={className} />;
+    case "hybrid": return <Wifi className={className} />;
+    case "gateway": return <Router className={className} />;
+    default: return <Monitor className={className} />;
+  }
+}
 
 type SafeUser = Omit<User, "password">;
 
@@ -376,10 +394,13 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                     className="rounded"
                     data-testid={`checkbox-device-${device.id}`}
                   />
-                  <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{device.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{device.macAddress}{device.model ? ` · ${device.model}` : ""}</p>
+                  <DeviceIcon type={device.deviceType} className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-medium truncate">{device.name}</p>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">{deviceTypeLabels[device.deviceType || "other"] || "Device"}</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">{device.macAddress}{device.model ? ` · ${device.model}` : ""}{device.portCount ? ` · ${device.portCount} ports` : ""}</p>
                   </div>
                 </label>
               );

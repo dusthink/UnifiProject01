@@ -6,6 +6,7 @@ import { relations } from "drizzle-orm";
 
 export const roleEnum = pgEnum("role", ["admin", "tenant"]);
 export const wifiModeEnum = pgEnum("wifi_mode", ["ppsk", "individual"]);
+export const deviceTypeEnum = pgEnum("device_type", ["switch", "access_point", "hybrid", "gateway", "other"]);
 
 export const controllers = pgTable("controllers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -99,6 +100,8 @@ export const devices = pgTable("devices", {
   name: text("name").notNull(),
   macAddress: text("mac_address").notNull(),
   model: text("model"),
+  deviceType: deviceTypeEnum("device_type").default("other"),
+  portCount: integer("port_count"),
   unifiDeviceId: text("unifi_device_id"),
   buildingId: varchar("building_id"),
   communityId: varchar("community_id"),

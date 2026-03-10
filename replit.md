@@ -35,7 +35,7 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - InviteTokens (token, unitId, email, expiresAt, usedAt, createdBy)
 - Networks (id, controllerId, name, vlanId, ipSubnet, dhcpEnabled, dhcpStart, dhcpStop, unifiNetworkId, siteId, isManaged) — VLAN networks per controller; isManaged=true for web-created, false for controller-discovered
 - Communities (has controllerId FK, unifiSiteId) → Buildings (name, address, floors) → Units (hierarchical, tenantId FK to users, networkId FK to networks)
-- Devices (UniFi switches/APs, globally imported from controllers; assigned to units via UnitDevicePorts)
+- Devices (UniFi switches/APs, globally imported from controllers; typed as switch/access_point/hybrid/gateway/other with port count; assigned to units via UnitDevicePorts)
 - UnitDevicePorts (device-to-unit assignments for provisioning)
 
 ## Multi-Controller Architecture

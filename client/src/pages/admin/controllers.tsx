@@ -10,11 +10,75 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal } from "lucide-react";
+import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal, Radio, ArrowLeftRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Network as NetworkType, Device } from "@shared/schema";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+type DeviceType = "switch" | "access_point" | "hybrid" | "gateway" | "other";
+
+function detectDeviceType(dev: any): DeviceType {
+  const type = (dev.type || "").toLowerCase();
+  const model = (dev.model || "").toLowerCase();
+
+  const isSwitch = type === "usw" || model.startsWith("usw") || model.startsWith("us-");
+  const isAP = type === "uap" || model.startsWith("uap") || model.startsWith("u6-") || model.startsWith("u7-");
+  const isGateway = type === "ugw" || type === "udm" || type === "uxg" || model.startsWith("udm") || model.startsWith("ugw") || model.startsWith("uxg");
+
+  if (isSwitch && isAP) return "hybrid";
+  if (model.includes("iw") || model.includes("in-wall")) return "hybrid";
+  if (isGateway) return "gateway";
+  if (isSwitch) return "switch";
+  if (isAP) return "access_point";
+  return "other";
+}
+
+function detectPortCount(dev: any): number | null {
+  if (dev.port_table && Array.isArray(dev.port_table)) {
+    return dev.port_table.length;
+  }
+  if (typeof dev.port_overrides === "object" && Array.isArray(dev.port_overrides)) {
+    return dev.port_overrides.length;
+  }
+  return null;
+}
+
+const deviceTypeLabels: Record<DeviceType, string> = {
+  switch: "Switch",
+  access_point: "Access Point",
+  hybrid: "Hybrid (AP + Switch)",
+  gateway: "Gateway",
+  other: "Other",
+};
+
+const deviceTypeColors: Record<DeviceType, string> = {
+  switch: "bg-blue-500/10 text-blue-600 border-blue-200",
+  access_point: "bg-purple-500/10 text-purple-600 border-purple-200",
+  hybrid: "bg-amber-500/10 text-amber-600 border-amber-200",
+  gateway: "bg-green-500/10 text-green-600 border-green-200",
+  other: "bg-gray-500/10 text-gray-600 border-gray-200",
+};
+
+function DeviceTypeIcon({ type, className = "h-4 w-4" }: { type: DeviceType; className?: string }) {
+  switch (type) {
+    case "switch": return <ArrowLeftRight className={className} />;
+    case "access_point": return <Radio className={className} />;
+    case "hybrid": return <Wifi className={className} />;
+    case "gateway": return <Router className={className} />;
+    default: return <Monitor className={className} />;
+  }
+}
+
+function DeviceTypeBadge({ type }: { type: DeviceType }) {
+  return (
+    <Badge variant="outline" className={`text-xs ${deviceTypeColors[type]}`} data-testid={`badge-device-type-${type}`}>
+      <DeviceTypeIcon type={type} className="h-3 w-3 mr-1" />
+      {deviceTypeLabels[type]}
+    </Badge>
+  );
+}
 
 interface Controller {
   id: string;
@@ -775,12 +839,20 @@ export default function ControllersPage() {
                 <div className="space-y-1 p-2">
                   {liveDevices.map((dev: any) => {
                     const alreadyImported = importedDevices?.some(d => d.unifiDeviceId === dev._id || d.macAddress === dev.mac);
+                    const devType = detectDeviceType(dev);
+                    const ports = detectPortCount(dev);
                     return (
                       <div key={dev._id || dev.mac} className="flex items-center justify-between gap-3 p-2.5 rounded-md hover:bg-muted/50" data-testid={`row-live-device-${dev._id || dev.mac}`}>
                         <div className="flex items-center gap-3 min-w-0">
-                          <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <DeviceTypeIcon type={devType} className="h-4 w-4 text-muted-foreground shrink-0" />
                           <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{dev.name || dev.hostname || dev.model || "Unknown"}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium truncate">{dev.name || dev.hostname || dev.model || "Unknown"}</p>
+                              <DeviceTypeBadge type={devType} />
+                              {ports && (devType === "switch" || devType === "hybrid") && (
+                                <Badge variant="outline" className="text-xs">{ports} ports</Badge>
+                              )}
+                            </div>
                             <p className="text-xs text-muted-foreground">
                               {dev.mac ? (dev.mac.includes(":") ? dev.mac : dev.mac.replace(/(.{2})(?=.)/g, "$1:")) : ""} — {dev.model || "Unknown model"}
                               {dev.state === 1 && <span className="ml-2 text-green-600">Online</span>}
@@ -801,6 +873,8 @@ export default function ControllersPage() {
                                 name: dev.name || dev.hostname || dev.model || "Device",
                                 macAddress: dev.mac,
                                 model: dev.model || null,
+                                deviceType: devType,
+                                portCount: ports,
                                 unifiDeviceId: dev._id || null,
                               });
                             }}
@@ -1103,9 +1177,9 @@ export default function ControllersPage() {
                                           <TableHeader>
                                             <TableRow>
                                               <TableHead>Name</TableHead>
+                                              <TableHead>Type</TableHead>
                                               <TableHead>Model</TableHead>
                                               <TableHead>MAC Address</TableHead>
-                                              <TableHead>UniFi ID</TableHead>
                                               <TableHead className="w-[60px]">Actions</TableHead>
                                             </TableRow>
                                           </TableHeader>
@@ -1114,15 +1188,22 @@ export default function ControllersPage() {
                                               <TableRow key={dev.id} data-testid={`row-device-${dev.id}`}>
                                                 <TableCell className="font-medium" data-testid={`text-device-name-${dev.id}`}>
                                                   <div className="flex items-center gap-2">
-                                                    <Monitor className="h-4 w-4 text-muted-foreground" />
+                                                    <DeviceTypeIcon type={(dev.deviceType as DeviceType) || "other"} className="h-4 w-4 text-muted-foreground" />
                                                     {dev.name}
+                                                  </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                  <div className="flex items-center gap-1.5">
+                                                    <DeviceTypeBadge type={(dev.deviceType as DeviceType) || "other"} />
+                                                    {dev.portCount && ((dev.deviceType === "switch" || dev.deviceType === "hybrid") ? (
+                                                      <Badge variant="outline" className="text-xs">{dev.portCount}p</Badge>
+                                                    ) : null)}
                                                   </div>
                                                 </TableCell>
                                                 <TableCell>
                                                   <Badge variant="outline" className="text-xs">{dev.model || "—"}</Badge>
                                                 </TableCell>
                                                 <TableCell className="text-sm text-muted-foreground font-mono">{dev.macAddress}</TableCell>
-                                                <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">{dev.unifiDeviceId || "—"}</TableCell>
                                                 <TableCell>
                                                   <Button
                                                     size="icon"

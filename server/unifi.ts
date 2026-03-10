@@ -311,6 +311,8 @@ export class UnifiClient {
     rateLimitDownload?: number;
     schedule?: string[];
     scheduleEnabled?: boolean;
+    apGroupIds?: string[];
+    apGroupMode?: string;
   }): Promise<any> {
     const defaults = await this.getWlanDefaults(siteId);
 
@@ -319,9 +321,14 @@ export class UnifiClient {
       security: opts.security || "wpapsk",
       wpa_mode: opts.wpaMode || "wpa2",
       enabled: opts.enabled ?? true,
-      ap_group_mode: "all",
+      ap_group_mode: opts.apGroupMode || "all",
     };
-    if (defaults.apGroupIds.length > 0) body.ap_group_ids = defaults.apGroupIds;
+    if (opts.apGroupIds && opts.apGroupIds.length > 0) {
+      body.ap_group_ids = opts.apGroupIds;
+      body.ap_group_mode = opts.apGroupMode || "custom";
+    } else if (defaults.apGroupIds.length > 0) {
+      body.ap_group_ids = defaults.apGroupIds;
+    }
     if (defaults.wlangroupId) body.wlangroup_id = defaults.wlangroupId;
     if (opts.password) body.x_passphrase = opts.password;
     if (opts.networkId) body.networkconf_id = opts.networkId;
@@ -406,7 +413,12 @@ export class UnifiClient {
         description: k.description,
       })),
     };
-    if (defaults.apGroupIds.length > 0) body.ap_group_ids = defaults.apGroupIds;
+    if (advancedOpts?.apGroupIds && advancedOpts.apGroupIds.length > 0) {
+      body.ap_group_ids = advancedOpts.apGroupIds;
+      body.ap_group_mode = advancedOpts.apGroupMode || "custom";
+    } else if (defaults.apGroupIds.length > 0) {
+      body.ap_group_ids = defaults.apGroupIds;
+    }
     if (defaults.wlangroupId) body.wlangroup_id = defaults.wlangroupId;
     if (advancedOpts) {
       if (advancedOpts.isGuest !== undefined) body.is_guest = advancedOpts.isGuest;
@@ -466,6 +478,40 @@ export class UnifiClient {
   async getDeviceDetail(siteId: string, deviceMac: string): Promise<any> {
     const data = await this.request(`/api/s/${siteId}/stat/device/${deviceMac}`, "GET");
     return data?.data?.[0] || data;
+  }
+
+  async getApGroups(siteId: string = "default"): Promise<any[]> {
+    try {
+      const data = await this.request(`/v2/api/site/${siteId}/apgroups`, "GET");
+      return Array.isArray(data) ? data : (data?.data || []);
+    } catch {
+      const data = await this.request(`/api/s/${siteId}/rest/apgroup`, "GET");
+      return data?.data || [];
+    }
+  }
+
+  async createApGroup(siteId: string, name: string, deviceMacs: string[]): Promise<any> {
+    try {
+      return await this.request(`/v2/api/site/${siteId}/apgroups`, "POST", { name, device_macs: deviceMacs });
+    } catch {
+      return this.request(`/api/s/${siteId}/rest/apgroup`, "POST", { name, device_macs: deviceMacs });
+    }
+  }
+
+  async updateApGroup(siteId: string, groupId: string, updates: { name?: string; device_macs?: string[] }): Promise<any> {
+    try {
+      return await this.request(`/v2/api/site/${siteId}/apgroups/${groupId}`, "PUT", updates);
+    } catch {
+      return this.request(`/api/s/${siteId}/rest/apgroup/${groupId}`, "PUT", updates);
+    }
+  }
+
+  async deleteApGroup(siteId: string, groupId: string): Promise<any> {
+    try {
+      return await this.request(`/v2/api/site/${siteId}/apgroups/${groupId}`, "DELETE");
+    } catch {
+      return this.request(`/api/s/${siteId}/rest/apgroup/${groupId}`, "DELETE");
+    }
   }
 
   async updateWlan(siteId: string, wlanId: string, updates: Record<string, any>): Promise<any> {

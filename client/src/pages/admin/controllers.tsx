@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal, Radio, ArrowLeftRight, HardDrive, Download, AlertTriangle, Shield } from "lucide-react";
+import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal, Radio, ArrowLeftRight, HardDrive, Download, AlertTriangle, Shield, Users } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -270,6 +270,7 @@ const wifiDefaults = {
   bcastEnhanceEnabled: true, l2Isolation: false, proxyArp: false,
   rateLimitEnabled: false, rateLimitUpload: 0, rateLimitDownload: 0,
   scheduleEnabled: false,
+  apGroupMode: "all" as string, apGroupIds: [] as string[],
 };
 
 interface BackupEntry {
@@ -1058,7 +1059,7 @@ export default function ControllersPage() {
   const [editController, setEditController] = useState<Controller | null>(null);
   const [expandedCtrlId, setExpandedCtrlId] = useState<string | null>(null);
   const [expandedSiteId, setExpandedSiteId] = useState<string | null>(null);
-  const [siteTab, setSiteTab] = useState<"networks" | "wifi" | "devices">("networks");
+  const [siteTab, setSiteTab] = useState<"networks" | "wifi" | "apgroups" | "devices">("networks");
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
   const [addNetworkOpen, setAddNetworkOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
@@ -1090,8 +1091,15 @@ export default function ControllersPage() {
   const [bulkWifiSelectedNetworks, setBulkWifiSelectedNetworks] = useState<string[]>([]);
   const [bulkWifiNaming, setBulkWifiNaming] = useState<"network" | "prefix" | "custom">("network");
   const [bulkWifiPrefix, setBulkWifiPrefix] = useState("WiFi");
+  const [bulkWifiApGroupMode, setBulkWifiApGroupMode] = useState<"all" | "custom">("all");
+  const [bulkWifiApGroupIds, setBulkWifiApGroupIds] = useState<string[]>([]);
   const [bulkWifiSubmitting, setBulkWifiSubmitting] = useState(false);
   const [bulkWifiResult, setBulkWifiResult] = useState<{ total: number; succeeded: number; failed: number; results: any[] } | null>(null);
+
+  const [apGroupDialogOpen, setApGroupDialogOpen] = useState(false);
+  const [apGroupName, setApGroupName] = useState("");
+  const [apGroupSelectedMacs, setApGroupSelectedMacs] = useState<string[]>([]);
+  const [editApGroup, setEditApGroup] = useState<{ id: string; name: string; deviceMacs: string[] } | null>(null);
 
   const [editNetwork, setEditNetwork] = useState<any>(null);
   const [editWifi, setEditWifi] = useState<any>(null);
@@ -1144,6 +1152,8 @@ export default function ControllersPage() {
     setBulkWifiSelectedNetworks([]);
     setBulkWifiNaming("network");
     setBulkWifiPrefix("WiFi");
+    setBulkWifiApGroupMode("all");
+    setBulkWifiApGroupIds([]);
     setBulkWifiSubmitting(false);
     setBulkWifiResult(null);
   };
@@ -1226,7 +1236,17 @@ export default function ControllersPage() {
       const res = await fetch(`/api/wifi-networks/controller/${expandedCtrlId}?siteId=${encodeURIComponent(expandedSiteId)}`, { credentials: "include" });
       return res.json();
     },
-    enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "wifi",
+    enabled: !!expandedCtrlId && !!expandedSiteId && (siteTab === "wifi" || siteTab === "apgroups"),
+  });
+
+  const { data: apGroups, isLoading: apGroupsLoading } = useQuery<any[]>({
+    queryKey: ["/api/ap-groups/controller", expandedCtrlId, "site", expandedSiteId],
+    queryFn: async () => {
+      if (!expandedCtrlId || !expandedSiteId) return [];
+      const res = await fetch(`/api/ap-groups/controller/${expandedCtrlId}?siteId=${encodeURIComponent(expandedSiteId)}`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!expandedCtrlId && !!expandedSiteId && (siteTab === "apgroups" || siteTab === "wifi"),
   });
 
   const { data: liveDevices, isFetching: fetchingLiveDevices, refetch: refetchLiveDevices } = useQuery<any[]>({
@@ -1236,7 +1256,7 @@ export default function ControllersPage() {
       const res = await fetch(`/api/controllers/${expandedCtrlId}/devices/${encodeURIComponent(expandedSiteId)}`, { credentials: "include" });
       return res.json();
     },
-    enabled: false,
+    enabled: !!expandedCtrlId && !!expandedSiteId && (siteTab === "apgroups" || siteTab === "devices"),
   });
 
   const addMutation = useMutation({
@@ -1336,6 +1356,44 @@ export default function ControllersPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
       toast({ title: "Device removed" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const createApGroupMutation = useMutation({
+    mutationFn: async (data: { controllerId: string; siteId: string; name: string; deviceMacs: string[] }) => {
+      const res = await apiRequest("POST", "/api/ap-groups", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ap-groups/controller", expandedCtrlId, "site", expandedSiteId] });
+      setApGroupDialogOpen(false);
+      setApGroupName("");
+      setApGroupSelectedMacs([]);
+      toast({ title: "AP group created" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateApGroupMutation = useMutation({
+    mutationFn: async (data: { id: string; controllerId: string; siteId: string; name: string; deviceMacs: string[] }) => {
+      await apiRequest("PUT", `/api/ap-groups/${data.id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ap-groups/controller", expandedCtrlId, "site", expandedSiteId] });
+      setEditApGroup(null);
+      toast({ title: "AP group updated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteApGroupMutation = useMutation({
+    mutationFn: async (groupId: string) => {
+      await apiRequest("DELETE", `/api/ap-groups/${groupId}?controllerId=${expandedCtrlId}&siteId=${expandedSiteId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ap-groups/controller", expandedCtrlId, "site", expandedSiteId] });
+      toast({ title: "AP group deleted" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -1717,6 +1775,40 @@ export default function ControllersPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>AP Group</Label>
+              <Select value={wifi.apGroupMode} onValueChange={(v) => {
+                wf("apGroupMode", v);
+                if (v === "all") wf("apGroupIds", []);
+              }}>
+                <SelectTrigger data-testid="select-wifi-ap-group-mode"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All APs (Default)</SelectItem>
+                  <SelectItem value="custom">Select AP Group</SelectItem>
+                </SelectContent>
+              </Select>
+              {wifi.apGroupMode === "custom" && apGroups && apGroups.length > 0 && (
+                <div className="border rounded-md max-h-36 overflow-y-auto mt-1">
+                  {apGroups.map((g: any) => (
+                    <label key={g._id} className="flex items-center gap-2 px-3 py-2 hover:bg-muted/50 cursor-pointer border-b last:border-b-0" data-testid={`checkbox-wifi-apgroup-${g._id}`}>
+                      <Checkbox
+                        checked={wifi.apGroupIds.includes(g._id)}
+                        onCheckedChange={(checked) => {
+                          const current = wifi.apGroupIds || [];
+                          wf("apGroupIds", checked ? [...current, g._id] : current.filter((id: string) => id !== g._id));
+                        }}
+                      />
+                      <span className="text-sm">{g.name}</span>
+                      <Badge variant="outline" className="text-xs ml-auto">{g.device_macs?.length || 0} APs</Badge>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {wifi.apGroupMode === "custom" && (!apGroups || apGroups.length === 0) && (
+                <p className="text-xs text-muted-foreground">No AP groups found. Create one from the AP Groups tab first.</p>
+              )}
             </div>
 
             <div className="flex items-center gap-4">
@@ -2373,6 +2465,15 @@ export default function ControllersPage() {
                                       {wifiNetworks && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{wifiNetworks.length}</Badge>}
                                     </button>
                                     <button
+                                      className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "apgroups" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                                      onClick={() => { setSiteTab("apgroups"); setSelectedNetworkIds([]); setSelectedWifiIds([]); setSelectedDeviceIds([]); }}
+                                      data-testid={`button-tab-apgroups-${siteKey}`}
+                                    >
+                                      <Users className="h-3.5 w-3.5" />
+                                      AP Groups
+                                      {apGroups && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{apGroups.length}</Badge>}
+                                    </button>
+                                    <button
                                       className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "devices" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
                                       onClick={() => { setSiteTab("devices"); setSelectedNetworkIds([]); setSelectedWifiIds([]); setSelectedDeviceIds([]); }}
                                       data-testid={`button-tab-devices-${siteKey}`}
@@ -2671,6 +2772,95 @@ export default function ControllersPage() {
                                       ) : (
                                         <p className="text-center text-sm text-muted-foreground py-8">
                                           No WiFi networks found on this site. Add one to create a wireless SSID.
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {siteTab === "apgroups" && (
+                                    <div className="p-3">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <div />
+                                        <Button
+                                          size="sm"
+                                          onClick={() => { setApGroupDialogOpen(true); setApGroupName(""); setApGroupSelectedMacs([]); }}
+                                          data-testid="button-create-ap-group"
+                                        >
+                                          <Plus className="h-3.5 w-3.5 mr-1" />
+                                          Create AP Group
+                                        </Button>
+                                      </div>
+                                      {apGroupsLoading ? (
+                                        <div className="space-y-2">
+                                          <Skeleton className="h-8 w-full" />
+                                          <Skeleton className="h-8 w-full" />
+                                        </div>
+                                      ) : apGroups && apGroups.length > 0 ? (
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead>Name</TableHead>
+                                              <TableHead>APs</TableHead>
+                                              <TableHead>WiFi Networks</TableHead>
+                                              <TableHead className="text-right">Actions</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {apGroups.map((group: any) => {
+                                              const wifiCount = wifiNetworks?.filter((w: any) => w.apGroupIds?.includes(group._id) || (w.ap_group_ids && w.ap_group_ids.includes(group._id))).length || 0;
+                                              return (
+                                                <TableRow key={group._id} data-testid={`row-apgroup-${group._id}`}>
+                                                  <TableCell className="font-medium">
+                                                    <div className="flex items-center gap-2">
+                                                      <Users className="h-4 w-4 text-muted-foreground" />
+                                                      {group.name}
+                                                      {group.attr_no_delete && (
+                                                        <Badge variant="secondary" className="text-xs">Default</Badge>
+                                                      )}
+                                                    </div>
+                                                  </TableCell>
+                                                  <TableCell>
+                                                    <Badge variant="outline" className="text-xs">
+                                                      {group.device_macs?.length || 0} {(group.device_macs?.length || 0) === 1 ? "AP" : "APs"}
+                                                    </Badge>
+                                                  </TableCell>
+                                                  <TableCell>
+                                                    <span className="text-sm text-muted-foreground">{wifiCount} {wifiCount === 1 ? "network" : "networks"}</span>
+                                                  </TableCell>
+                                                  <TableCell className="text-right">
+                                                    <div className="flex items-center justify-end gap-1">
+                                                      <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => setEditApGroup({ id: group._id, name: group.name, deviceMacs: group.device_macs || [] })}
+                                                        data-testid={`button-edit-apgroup-${group._id}`}
+                                                      >
+                                                        <Pencil className="h-4 w-4 text-muted-foreground" />
+                                                      </Button>
+                                                      {!group.attr_no_delete && (
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => {
+                                                            if (confirm(`Delete AP group "${group.name}"?`)) {
+                                                              deleteApGroupMutation.mutate(group._id);
+                                                            }
+                                                          }}
+                                                          data-testid={`button-delete-apgroup-${group._id}`}
+                                                        >
+                                                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                                        </Button>
+                                                      )}
+                                                    </div>
+                                                  </TableCell>
+                                                </TableRow>
+                                              );
+                                            })}
+                                          </TableBody>
+                                        </Table>
+                                      ) : (
+                                        <p className="text-sm text-muted-foreground py-4 text-center">
+                                          No AP groups found. Create a group to organize your access points.
                                         </p>
                                       )}
                                     </div>
@@ -3037,6 +3227,41 @@ export default function ControllersPage() {
                 </div>
               )}
 
+              {(bulkWifiTab === "ppsk" && bulkWifiPpskMode === "new") || bulkWifiTab === "ssid" ? (
+                <div className="space-y-2">
+                  <Label className="text-sm">AP Group</Label>
+                  <Select value={bulkWifiApGroupMode} onValueChange={(v: any) => {
+                    setBulkWifiApGroupMode(v);
+                    if (v === "all") setBulkWifiApGroupIds([]);
+                  }}>
+                    <SelectTrigger data-testid="select-bulk-wifi-ap-group-mode"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All APs (Default)</SelectItem>
+                      <SelectItem value="custom">Select AP Group</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {bulkWifiApGroupMode === "custom" && apGroups && apGroups.length > 0 && (
+                    <div className="border rounded-md max-h-28 overflow-y-auto mt-1">
+                      {apGroups.map((g: any) => (
+                        <label key={g._id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50 cursor-pointer border-b last:border-b-0" data-testid={`checkbox-bulk-wifi-apgroup-${g._id}`}>
+                          <Checkbox
+                            checked={bulkWifiApGroupIds.includes(g._id)}
+                            onCheckedChange={(checked) => {
+                              setBulkWifiApGroupIds(prev => checked ? [...prev, g._id] : prev.filter(id => id !== g._id));
+                            }}
+                          />
+                          <span className="text-sm">{g.name}</span>
+                          <Badge variant="outline" className="text-xs ml-auto">{g.device_macs?.length || 0} APs</Badge>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {bulkWifiApGroupMode === "custom" && (!apGroups || apGroups.length === 0) && (
+                    <p className="text-xs text-muted-foreground">No AP groups found. Create one from the AP Groups tab first.</p>
+                  )}
+                </div>
+              ) : null}
+
               <div>
                 <Label className="text-sm mb-2 block">Select Networks ({bulkWifiSelectedNetworks.length} selected)</Label>
                 <ScrollArea className="h-[200px] border rounded-lg p-2">
@@ -3140,6 +3365,9 @@ export default function ControllersPage() {
                         siteId: bulkWifiOpen.siteId,
                         networkIds: bulkWifiSelectedNetworks,
                       };
+                      const apGroupConfig = bulkWifiApGroupMode === "custom" && bulkWifiApGroupIds.length > 0
+                        ? { apGroupIds: bulkWifiApGroupIds, apGroupMode: "custom" }
+                        : {};
                       if (bulkWifiTab === "ppsk") {
                         body.mode = bulkWifiPpskMode === "new" ? "new" : "existing";
                         if (bulkWifiPpskMode === "new") {
@@ -3148,6 +3376,7 @@ export default function ControllersPage() {
                             securityMode: "wpapsk",
                             isPpsk: true,
                             wpaMode: "wpa2",
+                            ...apGroupConfig,
                           };
                         } else {
                           body.existingWifiId = bulkWifiExistingId;
@@ -3160,6 +3389,7 @@ export default function ControllersPage() {
                           namingConvention: bulkWifiNaming,
                           prefix: bulkWifiPrefix,
                           autoPassword: true,
+                          ...apGroupConfig,
                         };
                       }
                       const res = await apiRequest("POST", "/api/wifi-networks/bulk", body);
@@ -3292,6 +3522,116 @@ export default function ControllersPage() {
         controllerId={expandedCtrlId}
         siteId={expandedSiteId}
       />
+
+      <Dialog open={apGroupDialogOpen} onOpenChange={(open) => { if (!open) { setApGroupDialogOpen(false); setApGroupName(""); setApGroupSelectedMacs([]); } }}>
+        <DialogContent className="max-w-lg" data-testid="dialog-create-ap-group">
+          <DialogHeader>
+            <DialogTitle>Create AP Group</DialogTitle>
+            <DialogDescription>Create a new access point group and assign APs to it.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            if (!expandedCtrlId || !apGroupName.trim()) return;
+            createApGroupMutation.mutate({ controllerId: expandedCtrlId, siteId: expandedSiteId || "default", name: apGroupName.trim(), deviceMacs: apGroupSelectedMacs });
+          }} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Group Name</Label>
+              <Input value={apGroupName} onChange={(e) => setApGroupName(e.target.value)} placeholder="e.g., Building A APs" required data-testid="input-ap-group-name" />
+            </div>
+            <div className="space-y-2">
+              <Label>Access Points</Label>
+              {liveDevices && liveDevices.filter((d: any) => d.type === "uap").length > 0 ? (
+                <div className="border rounded-md max-h-48 overflow-y-auto">
+                  {liveDevices.filter((d: any) => d.type === "uap").map((dev: any) => (
+                    <label key={dev.mac} className="flex items-center gap-2 px-3 py-2 hover:bg-muted/50 cursor-pointer border-b last:border-b-0" data-testid={`checkbox-ap-${dev.mac}`}>
+                      <Checkbox
+                        checked={apGroupSelectedMacs.includes(dev.mac)}
+                        onCheckedChange={(checked) => {
+                          setApGroupSelectedMacs(prev => checked ? [...prev, dev.mac] : prev.filter(m => m !== dev.mac));
+                        }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{dev.name || dev.mac}</p>
+                        <p className="text-xs text-muted-foreground">{dev.mac} · {dev.model || "AP"}</p>
+                      </div>
+                      <Badge variant={dev.state === 1 ? "default" : "secondary"} className="text-xs shrink-0">
+                        {dev.state === 1 ? "Online" : "Offline"}
+                      </Badge>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground py-2">No access points found on this controller.</p>
+              )}
+              {apGroupSelectedMacs.length > 0 && (
+                <p className="text-xs text-muted-foreground">{apGroupSelectedMacs.length} AP{apGroupSelectedMacs.length !== 1 ? "s" : ""} selected</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => { setApGroupDialogOpen(false); setApGroupName(""); setApGroupSelectedMacs([]); }}>Cancel</Button>
+              <Button type="submit" disabled={createApGroupMutation.isPending || !apGroupName.trim()} data-testid="button-submit-ap-group">
+                {createApGroupMutation.isPending ? <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Creating...</> : "Create Group"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editApGroup} onOpenChange={(open) => { if (!open) setEditApGroup(null); }}>
+        <DialogContent className="max-w-lg" data-testid="dialog-edit-ap-group">
+          <DialogHeader>
+            <DialogTitle>Edit AP Group</DialogTitle>
+            <DialogDescription>Modify the group name and assigned access points.</DialogDescription>
+          </DialogHeader>
+          {editApGroup && (
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (!expandedCtrlId || !editApGroup.name.trim()) return;
+              updateApGroupMutation.mutate({ id: editApGroup.id, controllerId: expandedCtrlId, siteId: expandedSiteId || "default", name: editApGroup.name.trim(), deviceMacs: editApGroup.deviceMacs });
+            }} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Group Name</Label>
+                <Input value={editApGroup.name} onChange={(e) => setEditApGroup({ ...editApGroup, name: e.target.value })} required data-testid="input-edit-ap-group-name" />
+              </div>
+              <div className="space-y-2">
+                <Label>Access Points</Label>
+                {liveDevices && liveDevices.filter((d: any) => d.type === "uap").length > 0 ? (
+                  <div className="border rounded-md max-h-48 overflow-y-auto">
+                    {liveDevices.filter((d: any) => d.type === "uap").map((dev: any) => (
+                      <label key={dev.mac} className="flex items-center gap-2 px-3 py-2 hover:bg-muted/50 cursor-pointer border-b last:border-b-0" data-testid={`checkbox-edit-ap-${dev.mac}`}>
+                        <Checkbox
+                          checked={editApGroup.deviceMacs.includes(dev.mac)}
+                          onCheckedChange={(checked) => {
+                            setEditApGroup(prev => prev ? { ...prev, deviceMacs: checked ? [...prev.deviceMacs, dev.mac] : prev.deviceMacs.filter(m => m !== dev.mac) } : null);
+                          }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{dev.name || dev.mac}</p>
+                          <p className="text-xs text-muted-foreground">{dev.mac} · {dev.model || "AP"}</p>
+                        </div>
+                        <Badge variant={dev.state === 1 ? "default" : "secondary"} className="text-xs shrink-0">
+                          {dev.state === 1 ? "Online" : "Offline"}
+                        </Badge>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground py-2">No access points found on this controller.</p>
+                )}
+                {editApGroup.deviceMacs.length > 0 && (
+                  <p className="text-xs text-muted-foreground">{editApGroup.deviceMacs.length} AP{editApGroup.deviceMacs.length !== 1 ? "s" : ""} selected</p>
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setEditApGroup(null)}>Cancel</Button>
+                <Button type="submit" disabled={updateApGroupMutation.isPending || !editApGroup.name.trim()} data-testid="button-submit-edit-ap-group">
+                  {updateApGroupMutation.isPending ? <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Saving...</> : "Save Changes"}
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={deleteNetConfirm.open} onOpenChange={(open) => { if (!open) setDeleteNetConfirm({ open: false, networkId: "", networkName: "", loading: false, associations: null }); }}>
         <DialogContent className="max-w-md" data-testid="dialog-delete-network-confirm">

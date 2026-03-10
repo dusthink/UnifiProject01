@@ -1163,6 +1163,72 @@ export async function registerRoutes(
     res.json(dbWifiNets);
   });
 
+  app.get("/api/ap-groups/controller/:controllerId", requireAdmin, async (req, res) => {
+    try {
+      const controller = await storage.getController(req.params.controllerId);
+      if (!controller?.isVerified) return res.status(400).json({ message: "Controller not found or not verified" });
+      const siteId = (req.query.siteId as string) || "default";
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      const groups = await client.getApGroups(siteId);
+      res.json(groups.map((g: any) => ({
+        _id: g._id,
+        name: g.name,
+        device_macs: g.device_macs || [],
+        attr_no_delete: g.attr_no_delete || false,
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ap-groups", requireAdmin, async (req, res) => {
+    try {
+      const { controllerId, siteId, name, deviceMacs } = req.body;
+      if (!controllerId || !name) return res.status(400).json({ message: "controllerId and name required" });
+      const controller = await storage.getController(controllerId);
+      if (!controller?.isVerified) return res.status(400).json({ message: "Controller not found or not verified" });
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      const result = await client.createApGroup(siteId || "default", name, deviceMacs || []);
+      const group = result?.data?.[0];
+      if (!group) return res.status(500).json({ message: "Failed to create AP group" });
+      res.status(201).json({ _id: group._id, name: group.name, device_macs: group.device_macs || [] });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/ap-groups/:id", requireAdmin, async (req, res) => {
+    try {
+      const { controllerId, siteId, name, deviceMacs } = req.body;
+      if (!controllerId) return res.status(400).json({ message: "controllerId required" });
+      const controller = await storage.getController(controllerId);
+      if (!controller?.isVerified) return res.status(400).json({ message: "Controller not found or not verified" });
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (deviceMacs !== undefined) updates.device_macs = deviceMacs;
+      await client.updateApGroup(siteId || "default", req.params.id, updates);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/ap-groups/:id", requireAdmin, async (req, res) => {
+    try {
+      const controllerId = req.query.controllerId as string;
+      const siteId = (req.query.siteId as string) || "default";
+      if (!controllerId) return res.status(400).json({ message: "controllerId query param required" });
+      const controller = await storage.getController(controllerId);
+      if (!controller?.isVerified) return res.status(400).json({ message: "Controller not found or not verified" });
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      await client.deleteApGroup(siteId, req.params.id);
+      res.status(204).end();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/wifi-networks", requireAdmin, async (req, res) => {
     try {
       const parsed = insertWifiNetworkSchema.safeParse(req.body);
@@ -1201,6 +1267,8 @@ export async function registerRoutes(
               dtimMode: d.dtimMode,
               dtimNa: d.dtimNa,
               dtimNg: d.dtimNg,
+              apGroupIds: d.apGroupIds,
+              apGroupMode: d.apGroupMode,
             }
           );
         } else {
@@ -1235,6 +1303,8 @@ export async function registerRoutes(
             rateLimitUpload: d.rateLimitUpload,
             rateLimitDownload: d.rateLimitDownload,
             scheduleEnabled: d.scheduleEnabled,
+            apGroupIds: d.apGroupIds,
+            apGroupMode: d.apGroupMode,
           });
         }
         unifiWlanId = result?.data?.[0]?._id || null;
@@ -1329,6 +1399,8 @@ export async function registerRoutes(
               isGuest: cfg.isGuest,
               hideSsid: cfg.hideSsid,
               wlanBand: cfg.wlanBand,
+              apGroupIds: cfg.apGroupIds,
+              apGroupMode: cfg.apGroupMode,
             });
             const wlanId = result?.data?.[0]?._id;
             if (wlanId) {
@@ -1380,6 +1452,8 @@ export async function registerRoutes(
                 security: "wpapsk",
                 wpaMode: "wpa2",
                 enabled: true,
+                apGroupIds: cfg.apGroupIds,
+                apGroupMode: cfg.apGroupMode,
               });
               const wlanId = result?.data?.[0]?._id;
               if (wlanId) {
@@ -1423,6 +1497,8 @@ export async function registerRoutes(
                 isGuest: cfg.isGuest,
                 hideSsid: cfg.hideSsid,
                 wlanBand: cfg.wlanBand,
+                apGroupIds: cfg.apGroupIds,
+                apGroupMode: cfg.apGroupMode,
               });
               const wlanId = result?.data?.[0]?._id;
               if (wlanId) {

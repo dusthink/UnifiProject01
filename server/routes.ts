@@ -927,6 +927,7 @@ export async function registerRoutes(
               name: raw.name,
               security: raw.security,
               wpa_mode: raw.wpa_mode,
+              wpa3_transition: raw.wpa3_transition,
               wlan_band: raw.wlan_band,
               wlan_bands: raw.wlan_bands,
               enabled: raw.enabled,
@@ -940,6 +941,36 @@ export async function registerRoutes(
               ppsk_key_count: raw.private_preshared_keys?.length || 0,
               networkconf_id: raw.networkconf_id,
               usergroup_id: raw.usergroup_id,
+              mac_filter_enabled: raw.mac_filter_enabled,
+              mac_filter_policy: raw.mac_filter_policy,
+              uapsd_enabled: raw.uapsd_enabled,
+              fast_roaming_enabled: raw.fast_roaming_enabled,
+              proxy_arp: raw.proxy_arp,
+              bss_transition: raw.bss_transition,
+              l2_isolation: raw.l2_isolation,
+              group_rekey: raw.group_rekey,
+              dtim_mode: raw.dtim_mode,
+              dtim_na: raw.dtim_na,
+              dtim_ng: raw.dtim_ng,
+              minrate_na_enabled: raw.minrate_na_enabled,
+              minrate_ng_enabled: raw.minrate_ng_enabled,
+              minrate_na_data_rate_kbps: raw.minrate_na_data_rate_kbps,
+              minrate_ng_data_rate_kbps: raw.minrate_ng_data_rate_kbps,
+              minrate_na_advertising_rates: raw.minrate_na_advertising_rates,
+              minrate_ng_advertising_rates: raw.minrate_ng_advertising_rates,
+              no2ghz_oui: raw.no2ghz_oui,
+              minrate_na_beacon_rate_kbps: raw.minrate_na_beacon_rate_kbps,
+              minrate_ng_beacon_rate_kbps: raw.minrate_ng_beacon_rate_kbps,
+              radius_das_enabled: raw.radius_das_enabled,
+              schedule_enabled: raw.schedule_enabled,
+              schedule: raw.schedule,
+              schedule_with_duration: raw.schedule_with_duration,
+              iapp_enabled: raw.iapp_enabled,
+              wpa3_enhanced_192: raw.wpa3_enhanced_192,
+              wpa3_fast_roaming: raw.wpa3_fast_roaming,
+              setting_preference: raw.setting_preference,
+              vlan: raw.vlan,
+              vlan_enabled: raw.vlan_enabled,
             };
           }
         }
@@ -1627,7 +1658,13 @@ export async function registerRoutes(
       if (!existing) return res.status(404).json({ message: "WiFi network not found" });
       if (!existing.isManaged) return res.status(403).json({ message: "Cannot edit controller-managed WiFi networks." });
 
-      const { name, password, isGuest, enabled } = req.body;
+      const { name, password, isGuest, enabled, security, wpaMode, wlanBand,
+        hideSsid, pmfMode, apGroupMode, apGroupIds,
+        fastRoamingEnabled, bssTransition, uapsdEnabled,
+        l2Isolation, proxyArp, groupRekey,
+        dtimMode, dtimNa, dtimNg,
+        minrateNaEnabled, minrateNgEnabled,
+        minrateNaDataRateKbps, minrateNgDataRateKbps } = req.body;
       const dbUpdates: Partial<InsertWifiNetwork> = {};
       const unifiUpdates: Record<string, any> = {};
 
@@ -1635,6 +1672,43 @@ export async function registerRoutes(
       if (password !== undefined && password !== "") { dbUpdates.password = password; unifiUpdates.x_passphrase = password; }
       if (isGuest !== undefined) { dbUpdates.isGuest = isGuest; unifiUpdates.is_guest = isGuest; }
       if (enabled !== undefined) { dbUpdates.enabled = enabled; unifiUpdates.enabled = enabled; }
+
+      if (security !== undefined) {
+        dbUpdates.securityMode = security;
+        unifiUpdates.security = security;
+      }
+      if (wpaMode !== undefined) {
+        dbUpdates.wpaMode = wpaMode;
+        unifiUpdates.wpa_mode = wpaMode;
+      }
+      if (wlanBand !== undefined) { unifiUpdates.wlan_band = wlanBand; }
+      if (hideSsid !== undefined) { unifiUpdates.hide_ssid = hideSsid; }
+      if (pmfMode !== undefined) { unifiUpdates.pmf_mode = pmfMode; }
+
+      if (apGroupMode !== undefined) {
+        unifiUpdates.ap_group_mode = apGroupMode;
+        if (apGroupMode === "all") {
+          unifiUpdates.ap_group_ids = [];
+        } else if (apGroupIds !== undefined) {
+          unifiUpdates.ap_group_ids = apGroupIds;
+        }
+      }
+
+      if (fastRoamingEnabled !== undefined) { unifiUpdates.fast_roaming_enabled = fastRoamingEnabled; }
+      if (bssTransition !== undefined) { unifiUpdates.bss_transition = bssTransition; }
+      if (uapsdEnabled !== undefined) { unifiUpdates.uapsd_enabled = uapsdEnabled; }
+      if (l2Isolation !== undefined) { unifiUpdates.l2_isolation = l2Isolation; }
+      if (proxyArp !== undefined) { unifiUpdates.proxy_arp = proxyArp; }
+      if (groupRekey !== undefined) { unifiUpdates.group_rekey = groupRekey; }
+
+      if (dtimMode !== undefined) { unifiUpdates.dtim_mode = dtimMode; }
+      if (dtimNa !== undefined) { unifiUpdates.dtim_na = dtimNa; }
+      if (dtimNg !== undefined) { unifiUpdates.dtim_ng = dtimNg; }
+
+      if (minrateNaEnabled !== undefined) { unifiUpdates.minrate_na_enabled = minrateNaEnabled; }
+      if (minrateNgEnabled !== undefined) { unifiUpdates.minrate_ng_enabled = minrateNgEnabled; }
+      if (minrateNaDataRateKbps !== undefined) { unifiUpdates.minrate_na_data_rate_kbps = minrateNaDataRateKbps; }
+      if (minrateNgDataRateKbps !== undefined) { unifiUpdates.minrate_ng_data_rate_kbps = minrateNgDataRateKbps; }
 
       if (existing.unifiWlanId && Object.keys(unifiUpdates).length > 0) {
         const controller = await storage.getController(existing.controllerId);

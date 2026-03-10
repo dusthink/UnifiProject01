@@ -755,16 +755,28 @@ function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }:
   );
 }
 
-function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation }: any) {
+function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation, controllerId, siteId }: any) {
   const [details, setDetails] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const { data: apGroups } = useQuery<any[]>({
+    queryKey: ["/api/ap-groups/controller", controllerId, siteId],
+    queryFn: async () => {
+      if (!controllerId) return [];
+      const res = await fetch(`/api/ap-groups/controller/${controllerId}?siteId=${siteId || "default"}`, { credentials: "include" });
+      return res.ok ? res.json() : [];
+    },
+    enabled: !!editWifi && !!controllerId,
+  });
 
   useEffect(() => {
     if (editWifi?.id) {
       setLoading(true);
       setDetails(null);
       setShowPassword(false);
+      setShowAdvanced(false);
       fetch(`/api/wifi-networks/${editWifi.id}/details`, { credentials: "include" })
         .then(r => r.json())
         .then(d => {
@@ -782,6 +794,21 @@ function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation }: any) {
               hideSsid: d.unifi.hide_ssid || false,
               isGuest: d.unifi.is_guest || prev.isGuest,
               pmfMode: d.unifi.pmf_mode || "disabled",
+              apGroupMode: d.unifi.ap_group_mode || "all",
+              apGroupIds: d.unifi.ap_group_ids || [],
+              fastRoamingEnabled: d.unifi.fast_roaming_enabled || false,
+              bssTransition: d.unifi.bss_transition || false,
+              uapsdEnabled: d.unifi.uapsd_enabled || false,
+              l2Isolation: d.unifi.l2_isolation || false,
+              proxyArp: d.unifi.proxy_arp || false,
+              groupRekey: d.unifi.group_rekey ?? 3600,
+              dtimMode: d.unifi.dtim_mode || "default",
+              dtimNa: d.unifi.dtim_na ?? 1,
+              dtimNg: d.unifi.dtim_ng ?? 1,
+              minrateNaEnabled: d.unifi.minrate_na_enabled || false,
+              minrateNgEnabled: d.unifi.minrate_ng_enabled || false,
+              minrateNaDataRateKbps: d.unifi.minrate_na_data_rate_kbps ?? 6000,
+              minrateNgDataRateKbps: d.unifi.minrate_ng_data_rate_kbps ?? 1000,
             } : prev);
           }
           setDetails(d);
@@ -795,7 +822,7 @@ function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation }: any) {
 
   return (
     <Dialog open={!!editWifi} onOpenChange={(open) => { if (!open) { setEditWifi(null); setDetails(null); } }}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit WiFi Network</DialogTitle>
           <DialogDescription>Modify wireless network settings. Changes will sync to the UniFi controller.</DialogDescription>
@@ -816,23 +843,62 @@ function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation }: any) {
                 data-testid="input-edit-wifi-name"
               />
             </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Security</Label>
-                <Input value={
-                  editWifi.securityMode === "wpapsk" ? (editWifi.wpaMode === "wpa3" ? "WPA3 Personal" : "WPA2 Personal") :
-                  editWifi.securityMode === "open" ? "Open" : editWifi.securityMode || "—"
-                } disabled className="bg-muted" data-testid="text-edit-wifi-security" />
+                <Select value={editWifi.securityMode || "wpapsk"} onValueChange={(v) => {
+                  const updates: any = { securityMode: v };
+                  if (v === "open") { updates.wpaMode = undefined; }
+                  else if (v === "wpapsk" && !editWifi.wpaMode) { updates.wpaMode = "wpa2"; }
+                  setEditWifi({ ...editWifi, ...updates });
+                }}>
+                  <SelectTrigger data-testid="select-edit-wifi-security"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="wpapsk">WPA Personal</SelectItem>
+                    <SelectItem value="open">Open</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+              {editWifi.securityMode === "wpapsk" && (
+                <div>
+                  <Label>WPA Mode</Label>
+                  <Select value={editWifi.wpaMode || "wpa2"} onValueChange={(v) => setEditWifi({ ...editWifi, wpaMode: v })}>
+                    <SelectTrigger data-testid="select-edit-wifi-wpa-mode"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="wpa2">WPA2</SelectItem>
+                      <SelectItem value="wpa3">WPA3</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Band</Label>
-                <Input value={
-                  editWifi.wlanBand === "both" ? "2.4 GHz + 5 GHz" :
-                  editWifi.wlanBand === "2g" ? "2.4 GHz" :
-                  editWifi.wlanBand === "5g" ? "5 GHz" : editWifi.wlanBand || "Both"
-                } disabled className="bg-muted" data-testid="text-edit-wifi-band" />
+                <Select value={editWifi.wlanBand || "both"} onValueChange={(v) => setEditWifi({ ...editWifi, wlanBand: v })}>
+                  <SelectTrigger data-testid="select-edit-wifi-band"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="both">2.4 GHz + 5 GHz</SelectItem>
+                    <SelectItem value="2g">2.4 GHz Only</SelectItem>
+                    <SelectItem value="5g">5 GHz Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>PMF Mode</Label>
+                <Select value={editWifi.pmfMode || "disabled"} onValueChange={(v) => setEditWifi({ ...editWifi, pmfMode: v })}>
+                  <SelectTrigger data-testid="select-edit-wifi-pmf"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="disabled">Disabled</SelectItem>
+                    <SelectItem value="optional">Optional</SelectItem>
+                    <SelectItem value="required">Required</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
+
             {isPpsk && (
               <div className="rounded-md border bg-blue-50 dark:bg-blue-950/30 p-3">
                 <div className="flex items-center gap-2 mb-1">
@@ -862,6 +928,37 @@ function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation }: any) {
                 <p className="text-xs text-muted-foreground mt-1">Leave unchanged to keep the current password.</p>
               </div>
             )}
+
+            <div>
+              <Label>AP Group</Label>
+              <Select value={editWifi.apGroupMode || "all"} onValueChange={(v) => {
+                setEditWifi({ ...editWifi, apGroupMode: v, ...(v === "all" ? { apGroupIds: [] } : {}) });
+              }}>
+                <SelectTrigger data-testid="select-edit-wifi-ap-group-mode"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All APs (Default)</SelectItem>
+                  <SelectItem value="custom">Select AP Group</SelectItem>
+                </SelectContent>
+              </Select>
+              {editWifi.apGroupMode === "custom" && apGroups && apGroups.length > 0 && (
+                <div className="border rounded-md max-h-28 overflow-y-auto mt-1">
+                  {apGroups.map((g: any) => (
+                    <label key={g._id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50 cursor-pointer border-b last:border-b-0" data-testid={`checkbox-edit-wifi-apgroup-${g._id}`}>
+                      <Checkbox
+                        checked={(editWifi.apGroupIds || []).includes(g._id)}
+                        onCheckedChange={(checked) => {
+                          const ids = editWifi.apGroupIds || [];
+                          setEditWifi({ ...editWifi, apGroupIds: checked ? [...ids, g._id] : ids.filter((id: string) => id !== g._id) });
+                        }}
+                      />
+                      <span className="text-sm">{g.name}</span>
+                      <Badge variant="outline" className="text-xs ml-auto">{g.device_macs?.length || 0} APs</Badge>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="flex items-center gap-2">
                 <Switch
@@ -879,29 +976,223 @@ function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation }: any) {
                 />
                 <Label>Guest Network</Label>
               </div>
-            </div>
-            {details?.unifi && (
-              <div className="rounded-md border bg-muted/30 p-3">
-                <p className="text-xs font-medium text-muted-foreground mb-1">Controller Info</p>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                  <span className="text-muted-foreground">PMF Mode</span>
-                  <span>{details.unifi.pmf_mode || "Disabled"}</span>
-                  <span className="text-muted-foreground">AP Group Mode</span>
-                  <span>{details.unifi.ap_group_mode || "—"}</span>
-                  <span className="text-muted-foreground">Broadcasting APs</span>
-                  <span>{details.unifi.broadcasting_aps?.length ?? "—"}</span>
-                  <span className="text-muted-foreground">UniFi ID</span>
-                  <span className="font-mono">{details.unifi._id || "—"}</span>
-                </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={editWifi.hideSsid || false}
+                  onCheckedChange={(v) => setEditWifi({ ...editWifi, hideSsid: v })}
+                  data-testid="switch-edit-wifi-hide-ssid"
+                />
+                <Label>Hide SSID</Label>
               </div>
-            )}
+            </div>
+
+            <div className="border-t pt-3">
+              <button
+                type="button"
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground w-full"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                data-testid="button-edit-wifi-advanced-toggle"
+              >
+                <ChevronRight className={`h-4 w-4 transition-transform ${showAdvanced ? "rotate-90" : ""}`} />
+                Advanced Settings
+              </button>
+              {showAdvanced && (
+                <div className="space-y-4 mt-3">
+                  <p className="text-xs text-muted-foreground">Radio & Roaming</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={editWifi.fastRoamingEnabled || false}
+                        onCheckedChange={(v) => setEditWifi({ ...editWifi, fastRoamingEnabled: v })}
+                        data-testid="switch-edit-wifi-fast-roaming"
+                      />
+                      <Label className="text-sm">Fast Roaming (802.11r)</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={editWifi.bssTransition || false}
+                        onCheckedChange={(v) => setEditWifi({ ...editWifi, bssTransition: v })}
+                        data-testid="switch-edit-wifi-bss-transition"
+                      />
+                      <Label className="text-sm">BSS Transition (802.11v)</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={editWifi.uapsdEnabled || false}
+                        onCheckedChange={(v) => setEditWifi({ ...editWifi, uapsdEnabled: v })}
+                        data-testid="switch-edit-wifi-uapsd"
+                      />
+                      <Label className="text-sm">U-APSD</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={editWifi.proxyArp || false}
+                        onCheckedChange={(v) => setEditWifi({ ...editWifi, proxyArp: v })}
+                        data-testid="switch-edit-wifi-proxy-arp"
+                      />
+                      <Label className="text-sm">Proxy ARP</Label>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">Network Isolation</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={editWifi.l2Isolation || false}
+                        onCheckedChange={(v) => setEditWifi({ ...editWifi, l2Isolation: v })}
+                        data-testid="switch-edit-wifi-l2-isolation"
+                      />
+                      <Label className="text-sm">L2 Isolation</Label>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">Security</p>
+                  <div>
+                    <Label className="text-sm">Group Rekey Interval (seconds)</Label>
+                    <Input
+                      type="number"
+                      value={editWifi.groupRekey ?? 3600}
+                      onChange={(e) => setEditWifi({ ...editWifi, groupRekey: parseInt(e.target.value) || 3600 })}
+                      data-testid="input-edit-wifi-group-rekey"
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">DTIM Settings</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label className="text-sm">Mode</Label>
+                      <Select value={editWifi.dtimMode || "default"} onValueChange={(v) => setEditWifi({ ...editWifi, dtimMode: v })}>
+                        <SelectTrigger data-testid="select-edit-wifi-dtim-mode"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">Default</SelectItem>
+                          <SelectItem value="custom">Custom</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {editWifi.dtimMode === "custom" && (
+                      <>
+                        <div>
+                          <Label className="text-sm">DTIM 2G</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={255}
+                            value={editWifi.dtimNg ?? 1}
+                            onChange={(e) => setEditWifi({ ...editWifi, dtimNg: parseInt(e.target.value) || 1 })}
+                            data-testid="input-edit-wifi-dtim-ng"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-sm">DTIM 5G</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={255}
+                            value={editWifi.dtimNa ?? 1}
+                            onChange={(e) => setEditWifi({ ...editWifi, dtimNa: parseInt(e.target.value) || 1 })}
+                            data-testid="input-edit-wifi-dtim-na"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">Minimum Data Rate</p>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={editWifi.minrateNgEnabled || false}
+                        onCheckedChange={(v) => setEditWifi({ ...editWifi, minrateNgEnabled: v })}
+                        data-testid="switch-edit-wifi-minrate-ng"
+                      />
+                      <Label className="text-sm">2.4 GHz Min Rate</Label>
+                      {editWifi.minrateNgEnabled && (
+                        <Input
+                          type="number"
+                          className="w-24 ml-auto"
+                          value={editWifi.minrateNgDataRateKbps ?? 1000}
+                          onChange={(e) => setEditWifi({ ...editWifi, minrateNgDataRateKbps: parseInt(e.target.value) || 1000 })}
+                          data-testid="input-edit-wifi-minrate-ng-kbps"
+                        />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={editWifi.minrateNaEnabled || false}
+                        onCheckedChange={(v) => setEditWifi({ ...editWifi, minrateNaEnabled: v })}
+                        data-testid="switch-edit-wifi-minrate-na"
+                      />
+                      <Label className="text-sm">5 GHz Min Rate</Label>
+                      {editWifi.minrateNaEnabled && (
+                        <Input
+                          type="number"
+                          className="w-24 ml-auto"
+                          value={editWifi.minrateNaDataRateKbps ?? 6000}
+                          onChange={(e) => setEditWifi({ ...editWifi, minrateNaDataRateKbps: parseInt(e.target.value) || 6000 })}
+                          data-testid="input-edit-wifi-minrate-na-kbps"
+                        />
+                      )}
+                    </div>
+                    {(editWifi.minrateNgEnabled || editWifi.minrateNaEnabled) && (
+                      <p className="text-xs text-muted-foreground">Rate in Kbps (e.g. 6000 = 6 Mbps, 12000 = 12 Mbps)</p>
+                    )}
+                  </div>
+
+                  {details?.unifi && (
+                    <div className="rounded-md border bg-muted/30 p-3">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Controller Info</p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                        <span className="text-muted-foreground">Broadcasting APs</span>
+                        <span>{details.unifi.broadcasting_aps?.length ?? "—"}</span>
+                        <span className="text-muted-foreground">UniFi ID</span>
+                        <span className="font-mono">{details.unifi._id || "—"}</span>
+                        <span className="text-muted-foreground">Network Conf</span>
+                        <span className="font-mono">{details.unifi.networkconf_id || "—"}</span>
+                        <span className="text-muted-foreground">User Group</span>
+                        <span className="font-mono">{details.unifi.usergroup_id || "—"}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => { setEditWifi(null); setDetails(null); }} data-testid="button-edit-wifi-cancel">Cancel</Button>
               <Button
                 onClick={() => {
-                  const data: any = { name: editWifi.name, enabled: editWifi.enabled, isGuest: editWifi.isGuest || false };
+                  const data: any = {
+                    name: editWifi.name,
+                    enabled: editWifi.enabled,
+                    isGuest: editWifi.isGuest || false,
+                    security: editWifi.securityMode,
+                    wpaMode: editWifi.securityMode === "wpapsk" ? editWifi.wpaMode : undefined,
+                    wlanBand: editWifi.wlanBand,
+                    hideSsid: editWifi.hideSsid || false,
+                    pmfMode: editWifi.pmfMode,
+                    apGroupMode: editWifi.apGroupMode || "all",
+                    apGroupIds: editWifi.apGroupMode === "custom" ? (editWifi.apGroupIds || []) : [],
+                  };
                   if (editWifi.newPassword && editWifi.newPassword !== editWifi.currentPassword) {
                     data.password = editWifi.newPassword;
+                  }
+                  if (showAdvanced) {
+                    data.fastRoamingEnabled = editWifi.fastRoamingEnabled || false;
+                    data.bssTransition = editWifi.bssTransition || false;
+                    data.uapsdEnabled = editWifi.uapsdEnabled || false;
+                    data.proxyArp = editWifi.proxyArp || false;
+                    data.l2Isolation = editWifi.l2Isolation || false;
+                    data.groupRekey = editWifi.groupRekey ?? 3600;
+                    data.dtimMode = editWifi.dtimMode || "default";
+                    if (editWifi.dtimMode === "custom") {
+                      data.dtimNa = editWifi.dtimNa ?? 1;
+                      data.dtimNg = editWifi.dtimNg ?? 1;
+                    }
+                    data.minrateNaEnabled = editWifi.minrateNaEnabled || false;
+                    data.minrateNgEnabled = editWifi.minrateNgEnabled || false;
+                    if (editWifi.minrateNaEnabled) data.minrateNaDataRateKbps = editWifi.minrateNaDataRateKbps ?? 6000;
+                    if (editWifi.minrateNgEnabled) data.minrateNgDataRateKbps = editWifi.minrateNgDataRateKbps ?? 1000;
                   }
                   editWifiMutation.mutate({ id: editWifi.id, data });
                 }}
@@ -3513,6 +3804,8 @@ export default function ControllersPage() {
         editWifi={editWifi}
         setEditWifi={setEditWifi}
         editWifiMutation={editWifiMutation}
+        controllerId={expandedCtrlId}
+        siteId={expandedSiteId}
       />
 
       <EditDeviceDialog

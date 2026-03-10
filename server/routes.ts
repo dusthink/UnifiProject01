@@ -1225,8 +1225,8 @@ export async function registerRoutes(
       if (!controller?.isVerified) return res.status(400).json({ message: "Controller not found or not verified" });
       const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
       const result = await client.createApGroup(siteId || "default", name, deviceMacs || []);
-      const group = result?.data?.[0];
-      if (!group) return res.status(500).json({ message: "Failed to create AP group" });
+      const group = result?.data?.[0] || result;
+      if (!group?._id) return res.status(500).json({ message: "Failed to create AP group" });
       res.status(201).json({ _id: group._id, name: group.name, device_macs: group.device_macs || [] });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

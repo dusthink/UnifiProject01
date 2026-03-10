@@ -317,26 +317,26 @@ export class UnifiClient {
   }): Promise<any> {
     const defaults = await this.getWlanDefaults(siteId);
 
+    let pendingApGroupUpdate: { ap_group_ids: string[]; ap_group_mode: string } | null = null;
+
     const body: any = {
       name: opts.name,
       security: opts.security || "wpapsk",
       wpa_mode: opts.wpaMode || "wpa2",
       enabled: opts.enabled ?? true,
-      ap_group_mode: opts.apGroupMode || "all",
     };
+    if (defaults.apGroupIds.length > 0) {
+      body.ap_group_ids = defaults.apGroupIds;
+    }
     if (opts.broadcastApMacs && opts.broadcastApMacs.length > 0) {
       const groupName = `SSID-${opts.name}-APs`;
       const group = await this.createApGroup(siteId, groupName, opts.broadcastApMacs);
       const groupId = group?.data?.[0]?._id || group?._id;
       if (groupId) {
-        body.ap_group_ids = [groupId];
-        body.ap_group_mode = "custom";
+        pendingApGroupUpdate = { ap_group_ids: [groupId], ap_group_mode: "custom" };
       }
     } else if (opts.apGroupIds && opts.apGroupIds.length > 0) {
-      body.ap_group_ids = opts.apGroupIds;
-      body.ap_group_mode = opts.apGroupMode || "custom";
-    } else if (defaults.apGroupIds.length > 0) {
-      body.ap_group_ids = defaults.apGroupIds;
+      pendingApGroupUpdate = { ap_group_ids: opts.apGroupIds, ap_group_mode: opts.apGroupMode || "custom" };
     }
     if (defaults.wlangroupId) body.wlangroup_id = defaults.wlangroupId;
     if (opts.password) body.x_passphrase = opts.password;
@@ -377,7 +377,15 @@ export class UnifiClient {
       if (opts.radiusPort1) body.radius_port_1 = opts.radiusPort1;
       if (opts.radiusSecret1) body.x_radius_secret_1 = opts.radiusSecret1;
     }
-    return this.request(`/api/s/${siteId}/rest/wlanconf`, "POST", body);
+    const result = await this.request(`/api/s/${siteId}/rest/wlanconf`, "POST", body);
+    if (pendingApGroupUpdate && result?.data?.[0]?._id) {
+      try {
+        await this.updateWlan(siteId, result.data[0]._id, pendingApGroupUpdate);
+      } catch (e: any) {
+        console.log("[unifi] Failed to apply AP group to new WLAN:", e.message);
+      }
+    }
+    return result;
   }
 
   async getWlanDefaults(siteId: string): Promise<{ apGroupIds: string[]; wlangroupId: string | null }> {
@@ -392,12 +400,21 @@ export class UnifiClient {
     } catch {}
 
     try {
-      const existingWlans = await this.getWlans(siteId);
-      const wlanWithApGroup = existingWlans.find((w: any) => w.ap_group_ids?.length > 0);
-      if (wlanWithApGroup) {
-        apGroupIds = wlanWithApGroup.ap_group_ids;
+      const apGroupData = await this.getApGroups(siteId);
+      const defaultApGroup = apGroupData.find((g: any) => g.attr_no_delete) || apGroupData[0];
+      if (defaultApGroup?._id) {
+        apGroupIds = [defaultApGroup._id];
       }
     } catch {}
+    if (apGroupIds.length === 0) {
+      try {
+        const existingWlans = await this.getWlans(siteId);
+        const wlanWithApGroup = existingWlans.find((w: any) => w.ap_group_ids?.length > 0);
+        if (wlanWithApGroup) {
+          apGroupIds = wlanWithApGroup.ap_group_ids;
+        }
+      } catch {}
+    }
 
     return { apGroupIds, wlangroupId };
   }
@@ -413,7 +430,6 @@ export class UnifiClient {
       x_passphrase: masterPassphrase,
       networkconf_id: networkId,
       enabled: true,
-      ap_group_mode: "all",
       private_preshared_keys_enabled: true,
       private_preshared_keys: ppskKeys.map((k) => ({
         password: k.password,
@@ -422,19 +438,19 @@ export class UnifiClient {
         description: k.description,
       })),
     };
+    if (defaults.apGroupIds.length > 0) {
+      body.ap_group_ids = defaults.apGroupIds;
+    }
+    let pendingApGroupUpdate: { ap_group_ids: string[]; ap_group_mode: string } | null = null;
     if (advancedOpts?.broadcastApMacs && advancedOpts.broadcastApMacs.length > 0) {
       const groupName = `SSID-${name}-APs`;
       const group = await this.createApGroup(siteId, groupName, advancedOpts.broadcastApMacs);
       const groupId = group?.data?.[0]?._id || group?._id;
       if (groupId) {
-        body.ap_group_ids = [groupId];
-        body.ap_group_mode = "custom";
+        pendingApGroupUpdate = { ap_group_ids: [groupId], ap_group_mode: "custom" };
       }
     } else if (advancedOpts?.apGroupIds && advancedOpts.apGroupIds.length > 0) {
-      body.ap_group_ids = advancedOpts.apGroupIds;
-      body.ap_group_mode = advancedOpts.apGroupMode || "custom";
-    } else if (defaults.apGroupIds.length > 0) {
-      body.ap_group_ids = defaults.apGroupIds;
+      pendingApGroupUpdate = { ap_group_ids: advancedOpts.apGroupIds, ap_group_mode: advancedOpts.apGroupMode || "custom" };
     }
     if (defaults.wlangroupId) body.wlangroup_id = defaults.wlangroupId;
     if (advancedOpts) {
@@ -455,7 +471,15 @@ export class UnifiClient {
       if (advancedOpts.dtimNa !== undefined) body.dtim_na = advancedOpts.dtimNa;
       if (advancedOpts.dtimNg !== undefined) body.dtim_ng = advancedOpts.dtimNg;
     }
-    return this.request(`/api/s/${siteId}/rest/wlanconf`, "POST", body);
+    const result = await this.request(`/api/s/${siteId}/rest/wlanconf`, "POST", body);
+    if (pendingApGroupUpdate && result?.data?.[0]?._id) {
+      try {
+        await this.updateWlan(siteId, result.data[0]._id, pendingApGroupUpdate);
+      } catch (e: any) {
+        console.log("[unifi] Failed to apply AP group to new PPSK WLAN:", e.message);
+      }
+    }
+    return result;
   }
 
   async triggerBackup(siteId: string = "default"): Promise<{ url: string }> {

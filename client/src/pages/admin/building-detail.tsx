@@ -307,7 +307,8 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     setEditOpen(true);
   };
 
-  const availableDevices = devices || [];
+  const assignableTypes = ["switch", "access_point", "hybrid"];
+  const availableDevices = (devices || []).filter(d => assignableTypes.includes(d.deviceType || "other"));
 
   if (bldgLoading || unitsLoading) {
     return (

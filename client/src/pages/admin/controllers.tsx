@@ -891,6 +891,10 @@ export default function ControllersPage() {
                             <CheckCircle2 className="h-3 w-3 mr-1" />
                             Imported
                           </Badge>
+                        ) : devType === "gateway" || devType === "other" ? (
+                          <Badge variant="outline" className="shrink-0 text-xs text-muted-foreground">
+                            Not assignable
+                          </Badge>
                         ) : (
                           <Button
                             size="sm"

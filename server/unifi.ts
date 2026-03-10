@@ -531,6 +531,21 @@ export class UnifiClient {
     }
   }
 
+  async getOrCreateUnassignedApGroup(siteId: string): Promise<string> {
+    const groups = await this.getApGroups(siteId);
+    const existing = groups.find((g: any) => g.name === "_Unassigned-APs");
+    if (existing?._id) {
+      if (existing.device_macs && existing.device_macs.length > 0) {
+        await this.updateApGroup(siteId, existing._id, { device_macs: [] });
+      }
+      return existing._id;
+    }
+    const result = await this.createApGroup(siteId, "_Unassigned-APs", []);
+    const id = result?.data?.[0]?._id || result?._id;
+    if (!id) throw new Error("Failed to create unassigned AP group");
+    return id;
+  }
+
   async createApGroup(siteId: string, name: string, deviceMacs: string[]): Promise<any> {
     try {
       return await this.request(`/v2/api/site/${siteId}/apgroups`, "POST", { name, device_macs: deviceMacs });

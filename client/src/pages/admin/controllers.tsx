@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal, Radio, ArrowLeftRight, HardDrive, Download, AlertTriangle, Shield, Users } from "lucide-react";
+import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal, Radio, ArrowLeftRight, HardDrive, Download, AlertTriangle, Shield, Users, Info, WifiOff } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1664,8 +1664,6 @@ export default function ControllersPage() {
   const [bulkWifiSelectedNetworks, setBulkWifiSelectedNetworks] = useState<string[]>([]);
   const [bulkWifiNaming, setBulkWifiNaming] = useState<"network" | "prefix" | "custom">("network");
   const [bulkWifiPrefix, setBulkWifiPrefix] = useState("WiFi");
-  const [bulkWifiApGroupMode, setBulkWifiApGroupMode] = useState<"all" | "custom">("all");
-  const [bulkWifiApGroupIds, setBulkWifiApGroupIds] = useState<string[]>([]);
   const [bulkWifiSubmitting, setBulkWifiSubmitting] = useState(false);
   const [bulkWifiResult, setBulkWifiResult] = useState<{ total: number; succeeded: number; failed: number; results: any[] } | null>(null);
 
@@ -1725,8 +1723,6 @@ export default function ControllersPage() {
     setBulkWifiSelectedNetworks([]);
     setBulkWifiNaming("network");
     setBulkWifiPrefix("WiFi");
-    setBulkWifiApGroupMode("all");
-    setBulkWifiApGroupIds([]);
     setBulkWifiSubmitting(false);
     setBulkWifiResult(null);
   };
@@ -3315,6 +3311,18 @@ export default function ControllersPage() {
                                                     <Wifi className="h-4 w-4 text-muted-foreground" />
                                                     {wn.name}
                                                     {wn.isGuest && <Badge variant="outline" className="text-xs">Guest</Badge>}
+                                                    {(() => {
+                                                      const wnGroupIds = wn.ap_group_ids || [];
+                                                      const isUnassigned = wnGroupIds.length > 0 && apGroups && wnGroupIds.every((gid: string) => {
+                                                        const g = apGroups.find((ag: any) => ag._id === gid);
+                                                        return g && g.name === "_Unassigned-APs" && (!g.device_macs || g.device_macs.length === 0);
+                                                      });
+                                                      return isUnassigned ? (
+                                                        <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-700" data-testid={`badge-not-broadcasting-${wn.id}`}>
+                                                          <WifiOff className="h-3 w-3 mr-1" />Not Broadcasting
+                                                        </Badge>
+                                                      ) : null;
+                                                    })()}
                                                   </div>
                                                 </TableCell>
                                                 <TableCell>
@@ -3660,6 +3668,14 @@ export default function ControllersPage() {
                   </div>
                 )}
               </div>
+              {bulkWifiResult.succeeded > 0 && (
+                <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800" data-testid="text-bulk-wifi-broadcast-warning">
+                  <WifiOff className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    These SSIDs were created but are <strong>not broadcasting</strong> on any APs yet. Go to the WiFi tab and edit each SSID to assign it to specific APs or an AP group.
+                  </p>
+                </div>
+              )}
               {bulkWifiResult.results.filter((r: any) => !r.success).length > 0 && (
                 <ScrollArea className="h-[120px] border rounded-md p-3">
                   {bulkWifiResult.results.filter((r: any) => r.skipped).map((r: any, i: number) => (
@@ -3830,37 +3846,11 @@ export default function ControllersPage() {
               )}
 
               {(bulkWifiTab === "ppsk" && bulkWifiPpskMode === "new") || bulkWifiTab === "ssid" ? (
-                <div className="space-y-2">
-                  <Label className="text-sm">AP Group</Label>
-                  <Select value={bulkWifiApGroupMode} onValueChange={(v: any) => {
-                    setBulkWifiApGroupMode(v);
-                    if (v === "all") setBulkWifiApGroupIds([]);
-                  }}>
-                    <SelectTrigger data-testid="select-bulk-wifi-ap-group-mode"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All APs (Default)</SelectItem>
-                      <SelectItem value="custom">Select AP Group</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {bulkWifiApGroupMode === "custom" && apGroups && apGroups.length > 0 && (
-                    <div className="border rounded-md max-h-28 overflow-y-auto mt-1">
-                      {apGroups.map((g: any) => (
-                        <label key={g._id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50 cursor-pointer border-b last:border-b-0" data-testid={`checkbox-bulk-wifi-apgroup-${g._id}`}>
-                          <Checkbox
-                            checked={bulkWifiApGroupIds.includes(g._id)}
-                            onCheckedChange={(checked) => {
-                              setBulkWifiApGroupIds(prev => checked ? [...prev, g._id] : prev.filter(id => id !== g._id));
-                            }}
-                          />
-                          <span className="text-sm">{g.name}</span>
-                          <Badge variant="outline" className="text-xs ml-auto">{g.device_macs?.length || 0} APs</Badge>
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                  {bulkWifiApGroupMode === "custom" && (!apGroups || apGroups.length === 0) && (
-                    <p className="text-xs text-muted-foreground">No AP groups found. Create one from the AP Groups tab first.</p>
-                  )}
+                <div className="flex items-start gap-2 p-3 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
+                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                  <p className="text-xs text-blue-700 dark:text-blue-300" data-testid="text-bulk-wifi-ap-note">
+                    SSIDs will be created without broadcasting on any APs. After creation, edit each SSID from the WiFi tab to assign it to specific APs or an AP group.
+                  </p>
                 </div>
               ) : null}
 
@@ -3967,9 +3957,6 @@ export default function ControllersPage() {
                         siteId: bulkWifiOpen.siteId,
                         networkIds: bulkWifiSelectedNetworks,
                       };
-                      const apGroupConfig = bulkWifiApGroupMode === "custom" && bulkWifiApGroupIds.length > 0
-                        ? { apGroupIds: bulkWifiApGroupIds, apGroupMode: "custom" }
-                        : {};
                       if (bulkWifiTab === "ppsk") {
                         body.mode = bulkWifiPpskMode === "new" ? "new" : "existing";
                         if (bulkWifiPpskMode === "new") {
@@ -3978,7 +3965,6 @@ export default function ControllersPage() {
                             securityMode: "wpapsk",
                             isPpsk: true,
                             wpaMode: "wpa2",
-                            ...apGroupConfig,
                           };
                         } else {
                           body.existingWifiId = bulkWifiExistingId;
@@ -3991,7 +3977,6 @@ export default function ControllersPage() {
                           namingConvention: bulkWifiNaming,
                           prefix: bulkWifiPrefix,
                           autoPassword: true,
-                          ...apGroupConfig,
                         };
                       }
                       const res = await apiRequest("POST", "/api/wifi-networks/bulk", body);

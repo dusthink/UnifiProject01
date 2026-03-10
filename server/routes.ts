@@ -1191,7 +1191,12 @@ export async function registerRoutes(
         }
 
         const updatedWifiNets = await storage.getWifiNetworksByControllerAndSite(req.params.controllerId, siteId);
-        return res.json(updatedWifiNets);
+        const wlanMap = new Map(liveWlans.map((w: any) => [w._id, w]));
+        const enriched = updatedWifiNets.map(wn => {
+          const live = wlanMap.get(wn.unifiWlanId);
+          return { ...wn, ap_group_ids: live?.ap_group_ids || [] };
+        });
+        return res.json(enriched);
       } catch (err: any) {
         return res.json(dbWifiNets);
       }
@@ -1375,6 +1380,8 @@ export async function registerRoutes(
       const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
       const siteId = reqSiteId || "default";
 
+      const unassignedGroupId = await client.getOrCreateUnassignedApGroup(siteId);
+
       const allNetworks = await storage.getNetworksByController(controllerId);
       const selectedNetworks = allNetworks.filter(n => {
         if (!networkIds.includes(n.id) || n.siteId !== siteId) return false;
@@ -1437,8 +1444,7 @@ export async function registerRoutes(
               isGuest: cfg.isGuest,
               hideSsid: cfg.hideSsid,
               wlanBand: cfg.wlanBand,
-              apGroupIds: cfg.apGroupIds,
-              apGroupMode: cfg.apGroupMode,
+              apGroupIds: [unassignedGroupId],
             });
             const wlanId = result?.data?.[0]?._id;
             if (wlanId) {
@@ -1490,8 +1496,7 @@ export async function registerRoutes(
                 security: "wpapsk",
                 wpaMode: "wpa2",
                 enabled: true,
-                apGroupIds: cfg.apGroupIds,
-                apGroupMode: cfg.apGroupMode,
+                apGroupIds: [unassignedGroupId],
               });
               const wlanId = result?.data?.[0]?._id;
               if (wlanId) {
@@ -1535,8 +1540,7 @@ export async function registerRoutes(
                 isGuest: cfg.isGuest,
                 hideSsid: cfg.hideSsid,
                 wlanBand: cfg.wlanBand,
-                apGroupIds: cfg.apGroupIds,
-                apGroupMode: cfg.apGroupMode,
+                apGroupIds: [unassignedGroupId],
               });
               const wlanId = result?.data?.[0]?._id;
               if (wlanId) {
@@ -1620,6 +1624,7 @@ export async function registerRoutes(
                 wpaMode: existingWifi.wpaMode || "wpa2",
                 enabled: existingWifi.enabled ?? true,
                 isGuest: existingWifi.isGuest || false,
+                apGroupIds: [unassignedGroupId],
               });
               const wlanId = result?.data?.[0]?._id;
               if (wlanId) {

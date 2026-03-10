@@ -1019,18 +1019,101 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/networks/:id/associations", requireAdmin, async (req, res) => {
+    try {
+      const network = await storage.getNetwork(req.params.id);
+      if (!network) return res.status(404).json({ message: "Network not found" });
+
+      const wifiNets = await storage.getWifiNetworksByControllerAndSite(network.controllerId, network.siteId || "default");
+      const affectedWifi: Array<{ id: string; name: string; type: "ppsk_key" | "wlan" }> = [];
+
+      for (const wn of wifiNets) {
+        if (wn.networkConfId === network.unifiNetworkId) {
+          affectedWifi.push({ id: wn.id, name: wn.name, type: "wlan" });
+        } else if (wn.vlanId === network.vlanId) {
+          affectedWifi.push({ id: wn.id, name: wn.name, type: "wlan" });
+        }
+      }
+
+      if (network.unifiNetworkId) {
+        const controller = await storage.getController(network.controllerId);
+        if (controller?.isVerified) {
+          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+          const allWlans = await client.getWlans(network.siteId || "default");
+          for (const wlan of allWlans) {
+            if (wlan.private_preshared_keys_enabled && wlan.private_preshared_keys?.length > 0) {
+              const hasKey = wlan.private_preshared_keys.some(
+                (k: any) => k.networkconf_id === network.unifiNetworkId || String(k.vlan) === String(network.vlanId)
+              );
+              if (hasKey && !affectedWifi.find(a => a.name === wlan.name)) {
+                affectedWifi.push({ id: wlan._id, name: wlan.name, type: "ppsk_key" });
+              }
+            }
+          }
+        }
+      }
+
+      const allUnits = await storage.getAllUnits();
+      const affectedUnits = allUnits.filter(u => u.networkId === network.id);
+
+      res.json({
+        network: { id: network.id, name: network.name, vlanId: network.vlanId },
+        wifiNetworks: affectedWifi,
+        units: affectedUnits.map(u => ({ id: u.id, unitNumber: u.unitNumber })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.delete("/api/networks/:id", requireAdmin, async (req, res) => {
     try {
       const network = await storage.getNetwork(req.params.id);
       if (!network) return res.status(404).json({ message: "Network not found" });
       if (!network.isManaged) return res.status(403).json({ message: "Cannot delete controller-managed networks. This network exists on the UniFi controller and was not created from this interface." });
 
-      if (network.unifiNetworkId) {
-        const controller = await storage.getController(network.controllerId);
-        if (controller?.isVerified) {
-          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
-          await client.deleteNetwork(network.siteId || "default", network.unifiNetworkId);
+      const controller = network.unifiNetworkId ? await storage.getController(network.controllerId) : null;
+      const client = controller?.isVerified ? getUnifiClient(controller.id, controller.url, controller.username, controller.password) : null;
+      const siteId = network.siteId || "default";
+
+      if (client && network.unifiNetworkId) {
+        const allWlans = await client.getWlans(siteId);
+        for (const wlan of allWlans) {
+          if (wlan.private_preshared_keys_enabled && wlan.private_preshared_keys?.length > 0) {
+            const filteredKeys = wlan.private_preshared_keys.filter(
+              (k: any) => k.networkconf_id !== network.unifiNetworkId && String(k.vlan) !== String(network.vlanId)
+            );
+            if (filteredKeys.length < wlan.private_preshared_keys.length) {
+              await client.updateWlan(siteId, wlan._id, { private_preshared_keys: filteredKeys });
+            }
+          } else if (wlan.networkconf_id === network.unifiNetworkId) {
+            await client.deleteWlan(siteId, wlan._id);
+            const dbWifi = await storage.getWifiNetworksByControllerAndSite(network.controllerId, siteId);
+            const match = dbWifi.find(w => w.unifiWlanId === wlan._id);
+            if (match) await storage.deleteWifiNetwork(match.id);
+          }
         }
+      }
+
+      const wifiNets = await storage.getWifiNetworksByControllerAndSite(network.controllerId, siteId);
+      for (const wn of wifiNets) {
+        if (wn.networkConfId === network.unifiNetworkId || wn.vlanId === network.vlanId) {
+          if (wn.isManaged && wn.unifiWlanId && client) {
+            try { await client.deleteWlan(siteId, wn.unifiWlanId); } catch {}
+          }
+          await storage.deleteWifiNetwork(wn.id);
+        }
+      }
+
+      const allUnits = await storage.getAllUnits();
+      for (const unit of allUnits) {
+        if (unit.networkId === network.id) {
+          await storage.updateUnit(unit.id, { networkId: null, vlanId: null, isProvisioned: false, unifiNetworkId: null });
+        }
+      }
+
+      if (client && network.unifiNetworkId) {
+        await client.deleteNetwork(siteId, network.unifiNetworkId);
       }
 
       await storage.deleteNetwork(req.params.id);

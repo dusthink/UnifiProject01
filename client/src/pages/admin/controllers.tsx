@@ -1159,6 +1159,14 @@ export default function ControllersPage() {
   const [bulkResult, setBulkResult] = useState<{ requested: number; total: number; succeeded: number; failed: number; skipped: number; errors: string[]; results: any[] } | null>(null);
   const [bulkCreating, setBulkCreating] = useState(false);
 
+  const [deleteNetConfirm, setDeleteNetConfirm] = useState<{
+    open: boolean;
+    networkId: string;
+    networkName: string;
+    loading: boolean;
+    associations: { wifiNetworks: Array<{ id: string; name: string; type: string }>; units: Array<{ id: string; unitNumber: string }> } | null;
+  }>({ open: false, networkId: "", networkName: "", loading: false, associations: null });
+
   const { data: controllers, isLoading } = useQuery<Controller[]>({
     queryKey: ["/api/controllers"],
   });
@@ -1282,15 +1290,31 @@ export default function ControllersPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const openDeleteNetworkConfirm = async (networkId: string, networkName: string) => {
+    setDeleteNetConfirm({ open: true, networkId, networkName, loading: true, associations: null });
+    try {
+      const res = await apiRequest("GET", `/api/networks/${networkId}/associations`);
+      const data = await res.json();
+      setDeleteNetConfirm(prev => ({ ...prev, loading: false, associations: data }));
+    } catch {
+      setDeleteNetConfirm(prev => ({ ...prev, loading: false, associations: null }));
+    }
+  };
+
   const deleteNetworkMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/networks/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", expandedCtrlId, "site", expandedSiteId] });
-      toast({ title: "Network deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller", expandedCtrlId, "site", expandedSiteId] });
+      setDeleteNetConfirm({ open: false, networkId: "", networkName: "", loading: false, associations: null });
+      toast({ title: "Network and associated objects deleted" });
     },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: any) => {
+      setDeleteNetConfirm(prev => ({ ...prev, loading: false }));
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
   });
 
   const importDeviceMutation = useMutation({
@@ -2476,11 +2500,7 @@ export default function ControllersPage() {
                                                       <Button
                                                         size="icon"
                                                         variant="ghost"
-                                                        onClick={() => {
-                                                          if (confirm("Delete this network? This will also remove it from the UniFi controller.")) {
-                                                            deleteNetworkMutation.mutate(net.id);
-                                                          }
-                                                        }}
+                                                        onClick={() => openDeleteNetworkConfirm(net.id, net.name)}
                                                         data-testid={`button-delete-network-${net.id}`}
                                                       >
                                                         <Trash2 className="h-4 w-4 text-muted-foreground" />
@@ -3220,6 +3240,7 @@ export default function ControllersPage() {
                     }
                     if (type === "networks") {
                       queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", expandedCtrlId, "site", expandedSiteId] });
+                      queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller", expandedCtrlId, "site", expandedSiteId] });
                       setSelectedNetworkIds(failedIds);
                     } else if (type === "wifi") {
                       queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller"] });
@@ -3271,6 +3292,95 @@ export default function ControllersPage() {
         controllerId={expandedCtrlId}
         siteId={expandedSiteId}
       />
+
+      <Dialog open={deleteNetConfirm.open} onOpenChange={(open) => { if (!open) setDeleteNetConfirm({ open: false, networkId: "", networkName: "", loading: false, associations: null }); }}>
+        <DialogContent className="max-w-md" data-testid="dialog-delete-network-confirm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Delete Network
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>{deleteNetConfirm.networkName}</strong>?
+            </DialogDescription>
+          </DialogHeader>
+          {deleteNetConfirm.loading ? (
+            <div className="flex items-center justify-center py-6">
+              <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Checking associations...</span>
+            </div>
+          ) : !deleteNetConfirm.associations ? (
+            <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm space-y-2">
+              <p className="font-medium text-destructive flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                Failed to check associations
+              </p>
+              <p className="text-muted-foreground">Could not verify what objects are linked to this network. You can retry or proceed with caution.</p>
+              <Button size="sm" variant="outline" onClick={() => openDeleteNetworkConfirm(deleteNetConfirm.networkId, deleteNetConfirm.networkName)} data-testid="button-retry-associations">
+                <RefreshCw className="h-3.5 w-3.5 mr-1" /> Retry
+              </Button>
+            </div>
+          ) : deleteNetConfirm.associations.wifiNetworks.length > 0 || deleteNetConfirm.associations.units.length > 0 ? (
+            <div className="space-y-3">
+              <div className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 p-3 text-sm">
+                <p className="font-medium text-amber-800 dark:text-amber-200 mb-2">This network has active associations that will be affected:</p>
+                {deleteNetConfirm.associations.wifiNetworks.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1"><Wifi className="h-3.5 w-3.5" /> WiFi Networks ({deleteNetConfirm.associations.wifiNetworks.length})</p>
+                    <ul className="list-disc list-inside text-amber-600 dark:text-amber-400 ml-1 mt-1">
+                      {deleteNetConfirm.associations.wifiNetworks.map((w: any) => (
+                        <li key={w.id}>{w.name} {w.type === "ppsk_key" ? "(PPSK key will be removed)" : "(will be deleted)"}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {deleteNetConfirm.associations.units.length > 0 && (
+                  <div>
+                    <p className="text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1"><Layers className="h-3.5 w-3.5" /> Units ({deleteNetConfirm.associations.units.length})</p>
+                    <ul className="list-disc list-inside text-amber-600 dark:text-amber-400 ml-1 mt-1">
+                      {deleteNetConfirm.associations.units.slice(0, 5).map((u: any) => (
+                        <li key={u.id}>Unit {u.unitNumber} (will be unlinked)</li>
+                      ))}
+                      {deleteNetConfirm.associations.units.length > 5 && (
+                        <li>...and {deleteNetConfirm.associations.units.length - 5} more</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                The network will be removed from the UniFi controller along with all listed associations. This action cannot be undone.
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground py-2">
+              This network has no linked WiFi networks or units. It will be removed from the UniFi controller. This action cannot be undone.
+            </p>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteNetConfirm({ open: false, networkId: "", networkName: "", loading: false, associations: null })}
+              disabled={deleteNetworkMutation.isPending}
+              data-testid="button-cancel-delete-network"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteNetworkMutation.mutate(deleteNetConfirm.networkId)}
+              disabled={deleteNetConfirm.loading || deleteNetworkMutation.isPending}
+              data-testid="button-confirm-delete-network"
+            >
+              {deleteNetworkMutation.isPending ? (
+                <><RefreshCw className="h-4 w-4 animate-spin mr-2" /> Deleting...</>
+              ) : (
+                "Delete Network"
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

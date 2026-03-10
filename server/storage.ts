@@ -39,6 +39,7 @@ export interface IStorage {
   deleteBuilding(id: string): Promise<void>;
 
   getUnits(buildingId: string): Promise<Unit[]>;
+  getAllUnits(): Promise<Unit[]>;
   getUnit(id: string): Promise<Unit | undefined>;
   createUnit(data: InsertUnit): Promise<Unit>;
   updateUnit(id: string, data: Partial<InsertUnit>): Promise<Unit | undefined>;
@@ -184,6 +185,10 @@ export class DatabaseStorage implements IStorage {
 
   async getUnits(buildingId: string): Promise<Unit[]> {
     return db.select().from(units).where(eq(units.buildingId, buildingId));
+  }
+
+  async getAllUnits(): Promise<Unit[]> {
+    return db.select().from(units);
   }
 
   async getUnit(id: string): Promise<Unit | undefined> {

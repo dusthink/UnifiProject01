@@ -13,7 +13,7 @@ import { ArrowLeft, Plus, Trash2, Wifi, CheckCircle2, XCircle, Zap, Settings, Mo
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Building, Unit, Device, UnitDevicePort, User, Community, Network, WifiNetwork } from "@shared/schema";
+import type { Building, Unit, Device, UnitDevicePort, Community, Network, WifiNetwork } from "@shared/schema";
 
 const deviceTypeLabels: Record<string, string> = {
   switch: "Switch",
@@ -52,12 +52,9 @@ function DeviceImage({ iconId, deviceType, size = 28 }: { iconId?: string | null
   );
 }
 
-type SafeUser = Omit<User, "password">;
-
-function UnitRow({ unit, devices, tenants, networks, wifiNetworks, onDelete, onProvision, onDeprovision, onEdit }: {
+function UnitRow({ unit, devices, networks, wifiNetworks, onDelete, onProvision, onDeprovision, onEdit }: {
   unit: Unit;
   devices: Device[];
-  tenants: SafeUser[];
   networks: Network[];
   wifiNetworks: WifiNetwork[];
   onDelete: (id: string) => void;
@@ -65,8 +62,6 @@ function UnitRow({ unit, devices, tenants, networks, wifiNetworks, onDelete, onP
   onDeprovision: (id: string) => void;
   onEdit: (unit: Unit) => void;
 }) {
-  const tenant = unit.tenantId ? tenants.find(t => t.id === unit.tenantId) : null;
-  const displayTenant = tenant ? (tenant.displayName || tenant.username) : unit.tenantName;
   const network = unit.networkId ? networks.find(n => n.id === unit.networkId) : null;
   const wifiNet = unit.unifiWlanId ? wifiNetworks.find(w => w.unifiWlanId === unit.unifiWlanId) : null;
 
@@ -94,7 +89,6 @@ function UnitRow({ unit, devices, tenants, networks, wifiNetworks, onDelete, onP
           <span className="text-xs text-muted-foreground">Not set</span>
         )}
       </TableCell>
-      <TableCell className="max-w-[100px] truncate" data-testid={`text-tenant-${unit.id}`}>{displayTenant || "-"}</TableCell>
       <TableCell>
         {unit.isProvisioned ? (
           <Badge variant="default" className="bg-status-online/15 text-status-online border-0">
@@ -141,7 +135,6 @@ export default function BuildingDetailPage({ id }: { id: string }) {
   const [unitNumber, setUnitNumber] = useState("");
   const [selectedNetworkId, setSelectedNetworkId] = useState("");
   const [selectedWifiNetworkId, setSelectedWifiNetworkId] = useState("");
-  const [selectedTenantId, setSelectedTenantId] = useState("");
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
 
   const { data: building, isLoading: bldgLoading } = useQuery<Building>({
@@ -159,10 +152,6 @@ export default function BuildingDetailPage({ id }: { id: string }) {
 
   const { data: devices } = useQuery<Device[]>({
     queryKey: ["/api/devices"],
-  });
-
-  const { data: tenants } = useQuery<SafeUser[]>({
-    queryKey: ["/api/admin/tenant-users"],
   });
 
   const { data: community } = useQuery<Community>({
@@ -300,7 +289,6 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     setUnitNumber("");
     setSelectedNetworkId("");
     setSelectedWifiNetworkId("");
-    setSelectedTenantId("");
     setSelectedDeviceIds([]);
   };
 
@@ -310,7 +298,6 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     setSelectedNetworkId(unit.networkId || "");
     const matchedWifi = unit.unifiWlanId ? controllerWifiNetworks?.find(w => w.unifiWlanId === unit.unifiWlanId) : null;
     setSelectedWifiNetworkId(matchedWifi?.id || "");
-    setSelectedTenantId(unit.tenantId || "");
     const assignments = allPortAssignments?.[unit.id] || [];
     setSelectedDeviceIds(assignments.map(a => a.deviceId));
     setEditOpen(true);
@@ -387,22 +374,6 @@ export default function BuildingDetailPage({ id }: { id: string }) {
             </p>
           )}
         </div>
-      </div>
-      <div className="space-y-2">
-        <Label>Tenant</Label>
-        <Select value={selectedTenantId} onValueChange={setSelectedTenantId}>
-          <SelectTrigger data-testid="select-tenant">
-            <SelectValue placeholder="No tenant assigned" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">No tenant assigned</SelectItem>
-            {tenants?.map((t) => (
-              <SelectItem key={t.id} value={t.id} data-testid={`option-tenant-${t.id}`}>
-                {t.displayName || t.username}{t.email ? ` (${t.email})` : ""}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
       {availableDevices.length > 0 && (
         <div className="space-y-2">
@@ -484,7 +455,6 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                   vlanId: selectedNet?.vlanId ?? null,
                   unifiWlanId: selectedWifi?.unifiWlanId ?? null,
                   wifiSsid: selectedWifi?.name ?? null,
-                  tenantId: selectedTenantId && selectedTenantId !== "none" ? selectedTenantId : null,
                 });
               }}
               className="space-y-4"
@@ -519,7 +489,6 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                   vlanId: selectedNet?.vlanId ?? null,
                   unifiWlanId: selectedWifi?.unifiWlanId ?? null,
                   wifiSsid: selectedWifi?.name ?? null,
-                  tenantId: selectedTenantId && selectedTenantId !== "none" ? selectedTenantId : null,
                 },
                 deviceIds: selectedDeviceIds,
               });
@@ -550,7 +519,6 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                     <TableHead>Name</TableHead>
                     <TableHead>Network</TableHead>
                     <TableHead>WiFi Network</TableHead>
-                    <TableHead>Tenant</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -561,7 +529,6 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                       key={unit.id}
                       unit={unit}
                       devices={devices || []}
-                      tenants={tenants || []}
                       networks={controllerNetworks || []}
                       wifiNetworks={controllerWifiNetworks || []}
                       onDelete={(uid) => { if (confirm("Delete this unit?")) deleteMutation.mutate(uid); }}

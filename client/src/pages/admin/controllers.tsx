@@ -629,11 +629,13 @@ function BackupDialog({ controller, open, onOpenChange }: { controller: Controll
 function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }: any) {
   const [details, setDetails] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     if (editNetwork?.id) {
       setLoading(true);
       setDetails(null);
+      setShowAdvanced(false);
       fetch(`/api/networks/${editNetwork.id}/details`, { credentials: "include" })
         .then(r => r.json())
         .then(d => {
@@ -649,6 +651,21 @@ function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }:
               purpose: d.unifi.purpose || prev.purpose,
               networkgroup: d.unifi.networkgroup || "LAN",
               vlanEnabled: d.unifi.vlan_enabled ?? true,
+              dhcpdDnsEnabled: d.unifi.dhcpd_dns_enabled ?? false,
+              dhcpdDns1: d.unifi.dhcpd_dns_1 || "",
+              dhcpdDns2: d.unifi.dhcpd_dns_2 || "",
+              dhcpdLeasetime: d.unifi.dhcpd_leasetime ?? 86400,
+              dhcpdGatewayEnabled: d.unifi.dhcpd_gateway_enabled ?? false,
+              dhcpdGateway: d.unifi.dhcpd_gateway || "",
+              domainName: d.unifi.domain_name || "",
+              igmpSnooping: d.unifi.igmp_snooping ?? false,
+              internetAccessEnabled: d.unifi.internet_access_enabled ?? true,
+            } : prev);
+          }
+          if (d.local) {
+            setEditNetwork((prev: any) => prev ? {
+              ...prev,
+              networkIsolation: d.local.networkIsolation ?? false,
             } : prev);
           }
           setDetails(d);
@@ -659,8 +676,8 @@ function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }:
   }, [editNetwork?.id]);
 
   return (
-    <Dialog open={!!editNetwork} onOpenChange={(open) => { if (!open) setEditNetwork(null); }}>
-      <DialogContent className="max-w-lg">
+    <Dialog open={!!editNetwork} onOpenChange={(open) => { if (!open) { setEditNetwork(null); setDetails(null); } }}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Network</DialogTitle>
           <DialogDescription>Modify network settings. Changes will sync to the UniFi controller.</DialogDescription>
@@ -673,15 +690,16 @@ function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }:
           </div>
         ) : editNetwork && (
           <div className="space-y-4">
+            <div>
+              <Label>Name</Label>
+              <Input
+                value={editNetwork.name}
+                onChange={(e) => setEditNetwork({ ...editNetwork, name: e.target.value })}
+                data-testid="input-edit-network-name"
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
-                <Label>Name</Label>
-                <Input
-                  value={editNetwork.name}
-                  onChange={(e) => setEditNetwork({ ...editNetwork, name: e.target.value })}
-                  data-testid="input-edit-network-name"
-                />
-              </div>
               <div>
                 <Label>VLAN ID</Label>
                 <Input value={editNetwork.vlanId ?? ""} disabled className="bg-muted" data-testid="text-edit-network-vlan" />
@@ -690,19 +708,37 @@ function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }:
                 <Label>Purpose</Label>
                 <Input value={editNetwork.purpose || "corporate"} disabled className="bg-muted" data-testid="text-edit-network-purpose" />
               </div>
-              <div className="col-span-2">
-                <Label>IP Subnet</Label>
-                <Input value={editNetwork.ipSubnet || ""} disabled className="bg-muted" data-testid="text-edit-network-subnet" />
+            </div>
+
+            <div>
+              <Label>IP Subnet (CIDR)</Label>
+              <Input
+                value={editNetwork.ipSubnet || ""}
+                onChange={(e) => setEditNetwork({ ...editNetwork, ipSubnet: e.target.value })}
+                placeholder="e.g., 10.0.100.1/25"
+                data-testid="input-edit-network-subnet"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={editNetwork.dhcpEnabled}
+                  onCheckedChange={(v) => setEditNetwork({ ...editNetwork, dhcpEnabled: v })}
+                  data-testid="switch-edit-network-dhcp"
+                />
+                <Label>DHCP Server</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={editNetwork.networkIsolation ?? false}
+                  onCheckedChange={(v) => setEditNetwork({ ...editNetwork, networkIsolation: v })}
+                  data-testid="switch-edit-network-isolation"
+                />
+                <Label>Network Isolation</Label>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={editNetwork.dhcpEnabled}
-                onCheckedChange={(v) => setEditNetwork({ ...editNetwork, dhcpEnabled: v })}
-                data-testid="switch-edit-network-dhcp"
-              />
-              <Label>DHCP Server</Label>
-            </div>
+
             {editNetwork.dhcpEnabled && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -723,25 +759,155 @@ function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }:
                 </div>
               </div>
             )}
-            {details?.unifi && (
-              <div className="rounded-md border bg-muted/30 p-3">
-                <p className="text-xs font-medium text-muted-foreground mb-1">Controller Info</p>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                  <span className="text-muted-foreground">Network Group</span>
-                  <span>{details.unifi.networkgroup || "—"}</span>
-                  <span className="text-muted-foreground">VLAN Tagging</span>
-                  <span>{details.unifi.vlan_enabled ? "Enabled" : "Disabled"}</span>
-                  <span className="text-muted-foreground">UniFi ID</span>
-                  <span className="font-mono">{details.unifi._id || "—"}</span>
+
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={editNetwork.internetAccessEnabled ?? true}
+                onCheckedChange={(v) => setEditNetwork({ ...editNetwork, internetAccessEnabled: v })}
+                data-testid="switch-edit-network-internet"
+              />
+              <Label>Internet Access</Label>
+            </div>
+
+            <div className="border-t pt-3">
+              <button
+                type="button"
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground w-full"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                data-testid="button-edit-network-advanced-toggle"
+              >
+                <ChevronRight className={`h-4 w-4 transition-transform ${showAdvanced ? "rotate-90" : ""}`} />
+                Advanced Settings
+              </button>
+              {showAdvanced && (
+                <div className="space-y-4 mt-3">
+                  <p className="text-xs text-muted-foreground">DHCP Options</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={editNetwork.dhcpdDnsEnabled ?? false}
+                        onCheckedChange={(v) => setEditNetwork({ ...editNetwork, dhcpdDnsEnabled: v })}
+                        data-testid="switch-edit-network-dns-enabled"
+                      />
+                      <Label className="text-sm">Custom DNS</Label>
+                    </div>
+                    <div>
+                      <Label className="text-sm">Lease Time (sec)</Label>
+                      <Input
+                        type="number"
+                        value={editNetwork.dhcpdLeasetime ?? 86400}
+                        onChange={(e) => setEditNetwork({ ...editNetwork, dhcpdLeasetime: parseInt(e.target.value) || 86400 })}
+                        data-testid="input-edit-network-lease-time"
+                        className="mt-1"
+                      />
+                    </div>
+                  </div>
+
+                  {editNetwork.dhcpdDnsEnabled && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-sm">DNS Server 1</Label>
+                        <Input
+                          value={editNetwork.dhcpdDns1 || ""}
+                          onChange={(e) => setEditNetwork({ ...editNetwork, dhcpdDns1: e.target.value })}
+                          placeholder="e.g., 1.1.1.1"
+                          data-testid="input-edit-network-dns1"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-sm">DNS Server 2</Label>
+                        <Input
+                          value={editNetwork.dhcpdDns2 || ""}
+                          onChange={(e) => setEditNetwork({ ...editNetwork, dhcpdDns2: e.target.value })}
+                          placeholder="e.g., 8.8.8.8"
+                          data-testid="input-edit-network-dns2"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={editNetwork.dhcpdGatewayEnabled ?? false}
+                        onCheckedChange={(v) => setEditNetwork({ ...editNetwork, dhcpdGatewayEnabled: v })}
+                        data-testid="switch-edit-network-gateway-enabled"
+                      />
+                      <Label className="text-sm">Custom Gateway</Label>
+                    </div>
+                    {editNetwork.dhcpdGatewayEnabled && (
+                      <div>
+                        <Label className="text-sm">Gateway IP</Label>
+                        <Input
+                          value={editNetwork.dhcpdGateway || ""}
+                          onChange={(e) => setEditNetwork({ ...editNetwork, dhcpdGateway: e.target.value })}
+                          placeholder="e.g., 10.0.100.1"
+                          data-testid="input-edit-network-gateway"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">Network Options</p>
+                  <div>
+                    <Label className="text-sm">Domain Name</Label>
+                    <Input
+                      value={editNetwork.domainName || ""}
+                      onChange={(e) => setEditNetwork({ ...editNetwork, domainName: e.target.value })}
+                      placeholder="e.g., local"
+                      data-testid="input-edit-network-domain"
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={editNetwork.igmpSnooping ?? false}
+                      onCheckedChange={(v) => setEditNetwork({ ...editNetwork, igmpSnooping: v })}
+                      data-testid="switch-edit-network-igmp"
+                    />
+                    <Label className="text-sm">IGMP Snooping</Label>
+                  </div>
+
+                  {details?.unifi && (
+                    <div className="rounded-md border bg-muted/30 p-3">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Controller Info</p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                        <span className="text-muted-foreground">Network Group</span>
+                        <span>{details.unifi.networkgroup || "—"}</span>
+                        <span className="text-muted-foreground">VLAN Tagging</span>
+                        <span>{details.unifi.vlan_enabled ? "Enabled" : "Disabled"}</span>
+                        <span className="text-muted-foreground">UniFi ID</span>
+                        <span className="font-mono text-[10px]">{details.unifi._id || "—"}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setEditNetwork(null)} data-testid="button-edit-network-cancel">Cancel</Button>
               <Button
                 onClick={() => editNetworkMutation.mutate({
                   id: editNetwork.id,
-                  data: { name: editNetwork.name, dhcpEnabled: editNetwork.dhcpEnabled, dhcpStart: editNetwork.dhcpStart, dhcpStop: editNetwork.dhcpStop },
+                  data: {
+                    name: editNetwork.name,
+                    ipSubnet: editNetwork.ipSubnet,
+                    dhcpEnabled: editNetwork.dhcpEnabled,
+                    dhcpStart: editNetwork.dhcpStart,
+                    dhcpStop: editNetwork.dhcpStop,
+                    networkIsolation: editNetwork.networkIsolation,
+                    internetAccessEnabled: editNetwork.internetAccessEnabled,
+                    dhcpdDnsEnabled: editNetwork.dhcpdDnsEnabled,
+                    dhcpdDns1: editNetwork.dhcpdDns1,
+                    dhcpdDns2: editNetwork.dhcpdDns2,
+                    dhcpdLeasetime: editNetwork.dhcpdLeasetime,
+                    dhcpdGatewayEnabled: editNetwork.dhcpdGatewayEnabled,
+                    dhcpdGateway: editNetwork.dhcpdGateway,
+                    domainName: editNetwork.domainName,
+                    igmpSnooping: editNetwork.igmpSnooping,
+                  },
                 })}
                 disabled={editNetworkMutation.isPending}
                 data-testid="button-edit-network-save"

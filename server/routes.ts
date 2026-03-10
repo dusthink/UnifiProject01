@@ -937,9 +937,18 @@ export async function registerRoutes(
               dhcpd_start: raw.dhcpd_start,
               dhcpd_stop: raw.dhcpd_stop,
               dhcpd_dns_enabled: raw.dhcpd_dns_enabled,
+              dhcpd_leasetime: raw.dhcpd_leasetime,
+              dhcpd_dns_1: raw.dhcpd_dns_1,
+              dhcpd_dns_2: raw.dhcpd_dns_2,
+              dhcpd_gateway_enabled: raw.dhcpd_gateway_enabled,
+              dhcpd_gateway: raw.dhcpd_gateway,
+              dhcpd_unifi_controller: raw.dhcpd_unifi_controller,
+              domain_name: raw.domain_name,
+              igmp_snooping: raw.igmp_snooping,
               networkgroup: raw.networkgroup,
               setting_preference: raw.setting_preference,
               ipv6_setting_preference: raw.ipv6_setting_preference,
+              internet_access_enabled: raw.internet_access_enabled,
             };
           }
         }
@@ -1071,22 +1080,71 @@ export async function registerRoutes(
       const partial = insertNetworkSchema.partial().safeParse(req.body);
       if (!partial.success) return res.status(400).json({ message: partial.error.message });
 
+      if (partial.data.ipSubnet !== undefined && partial.data.ipSubnet !== null) {
+        if (!parseSubnet(partial.data.ipSubnet)) {
+          return res.status(400).json({ message: `Invalid subnet format: "${partial.data.ipSubnet}". Use CIDR notation like 10.0.1.1/25.` });
+        }
+        const existingNetworks = await storage.getNetworksByController(existing.controllerId);
+        const otherNetworks = existingNetworks.filter(n => n.id !== existing.id);
+        const overlap = findSubnetOverlap(partial.data.ipSubnet, otherNetworks);
+        if (overlap) {
+          return res.status(400).json({ message: `Subnet ${partial.data.ipSubnet} overlaps with network "${overlap.name}" (${overlap.ipSubnet}). Choose a different subnet.` });
+        }
+      }
+
+      let isolationSuccess = true;
       if (existing.unifiNetworkId) {
         const controller = await storage.getController(existing.controllerId);
         if (controller?.isVerified) {
           const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
           const unifiUpdates: Record<string, any> = {};
           if (partial.data.name !== undefined) unifiUpdates.name = partial.data.name;
+          if (partial.data.ipSubnet !== undefined) unifiUpdates.ip_subnet = partial.data.ipSubnet;
           if (partial.data.dhcpEnabled !== undefined) unifiUpdates.dhcpd_enabled = partial.data.dhcpEnabled;
           if (partial.data.dhcpStart !== undefined) unifiUpdates.dhcpd_start = partial.data.dhcpStart;
           if (partial.data.dhcpStop !== undefined) unifiUpdates.dhcpd_stop = partial.data.dhcpStop;
+
+          const extra = req.body;
+          if (extra.dhcpdDnsEnabled !== undefined) unifiUpdates.dhcpd_dns_enabled = extra.dhcpdDnsEnabled;
+          if (extra.dhcpdDns1 !== undefined) unifiUpdates.dhcpd_dns_1 = extra.dhcpdDns1;
+          if (extra.dhcpdDns2 !== undefined) unifiUpdates.dhcpd_dns_2 = extra.dhcpdDns2;
+          if (extra.dhcpdLeasetime !== undefined) unifiUpdates.dhcpd_leasetime = extra.dhcpdLeasetime;
+          if (extra.dhcpdGatewayEnabled !== undefined) unifiUpdates.dhcpd_gateway_enabled = extra.dhcpdGatewayEnabled;
+          if (extra.dhcpdGateway !== undefined) unifiUpdates.dhcpd_gateway = extra.dhcpdGateway;
+          if (extra.domainName !== undefined) unifiUpdates.domain_name = extra.domainName;
+          if (extra.igmpSnooping !== undefined) unifiUpdates.igmp_snooping = extra.igmpSnooping;
+          if (extra.internetAccessEnabled !== undefined) unifiUpdates.internet_access_enabled = extra.internetAccessEnabled;
+
           if (Object.keys(unifiUpdates).length > 0) {
             await client.updateNetwork(existing.siteId || "default", existing.unifiNetworkId, unifiUpdates);
+          }
+
+          if (extra.networkIsolation !== undefined && extra.networkIsolation !== existing.networkIsolation) {
+            const siteId = existing.siteId || "default";
+            if (extra.networkIsolation) {
+              try {
+                await client.createNetworkIsolationRules(siteId, existing.unifiNetworkId, existing.name);
+              } catch (e: any) {
+                isolationSuccess = false;
+                console.warn(`[networks] Could not create isolation rules: ${e.message}`);
+              }
+            } else {
+              try {
+                await client.deleteNetworkIsolationRules(siteId, existing.unifiNetworkId);
+              } catch (e: any) {
+                isolationSuccess = false;
+                console.warn(`[networks] Could not delete isolation rules: ${e.message}`);
+              }
+            }
           }
         }
       }
 
-      const network = await storage.updateNetwork(req.params.id, partial.data);
+      const dbUpdates: any = { ...partial.data };
+      if (req.body.networkIsolation !== undefined && isolationSuccess) {
+        dbUpdates.networkIsolation = req.body.networkIsolation;
+      }
+      const network = await storage.updateNetwork(req.params.id, dbUpdates);
       if (!network) return res.status(404).json({ message: "Network not found" });
       res.json(network);
     } catch (err: any) {

@@ -80,6 +80,31 @@ function DeviceTypeBadge({ type }: { type: DeviceType }) {
   );
 }
 
+function getDeviceImageUrl(iconId: string | null | undefined, size: number = 128): string | null {
+  if (!iconId) return null;
+  return `https://static.ui.com/fingerprint/0/${iconId}_${size}x${size}.png`;
+}
+
+function DeviceImage({ iconId, deviceType, size = 36, className = "" }: { iconId?: string | null; deviceType?: DeviceType; size?: number; className?: string }) {
+  const [imgError, setImgError] = useState(false);
+  const url = getDeviceImageUrl(iconId, size > 64 ? 257 : 128);
+
+  if (!url || imgError) {
+    return <DeviceTypeIcon type={deviceType || "other"} className={`h-${Math.round(size/6)} w-${Math.round(size/6)} text-muted-foreground`} />;
+  }
+
+  return (
+    <img
+      src={url}
+      alt="Device"
+      className={`object-contain ${className}`}
+      style={{ width: size, height: size }}
+      onError={() => setImgError(true)}
+      data-testid="img-device"
+    />
+  );
+}
+
 interface Controller {
   id: string;
   name: string;
@@ -844,7 +869,9 @@ export default function ControllersPage() {
                     return (
                       <div key={dev._id || dev.mac} className="flex items-center justify-between gap-3 p-2.5 rounded-md hover:bg-muted/50" data-testid={`row-live-device-${dev._id || dev.mac}`}>
                         <div className="flex items-center gap-3 min-w-0">
-                          <DeviceTypeIcon type={devType} className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted/50">
+                            <DeviceImage iconId={dev.icon} deviceType={devType} size={36} />
+                          </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="text-sm font-medium truncate">{dev.name || dev.hostname || dev.model || "Unknown"}</p>
@@ -875,6 +902,7 @@ export default function ControllersPage() {
                                 model: dev.model || null,
                                 deviceType: devType,
                                 portCount: ports,
+                                iconId: dev.icon ? String(dev.icon) : null,
                                 unifiDeviceId: dev._id || null,
                               });
                             }}
@@ -1187,8 +1215,10 @@ export default function ControllersPage() {
                                             {importedDevices.map((dev) => (
                                               <TableRow key={dev.id} data-testid={`row-device-${dev.id}`}>
                                                 <TableCell className="font-medium" data-testid={`text-device-name-${dev.id}`}>
-                                                  <div className="flex items-center gap-2">
-                                                    <DeviceTypeIcon type={(dev.deviceType as DeviceType) || "other"} className="h-4 w-4 text-muted-foreground" />
+                                                  <div className="flex items-center gap-3">
+                                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted/50">
+                                                      <DeviceImage iconId={dev.iconId} deviceType={(dev.deviceType as DeviceType) || "other"} size={32} />
+                                                    </div>
                                                     {dev.name}
                                                   </div>
                                                 </TableCell>

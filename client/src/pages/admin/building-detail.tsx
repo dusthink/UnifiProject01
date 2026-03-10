@@ -33,6 +33,25 @@ function DeviceIcon({ type, className = "h-4 w-4" }: { type?: string | null; cla
   }
 }
 
+function DeviceImage({ iconId, deviceType, size = 28 }: { iconId?: string | null; deviceType?: string | null; size?: number }) {
+  const [imgError, setImgError] = useState(false);
+  const url = iconId ? `https://static.ui.com/fingerprint/0/${iconId}_128x128.png` : null;
+
+  if (!url || imgError) {
+    return <DeviceIcon type={deviceType} className="h-4 w-4 text-muted-foreground" />;
+  }
+
+  return (
+    <img
+      src={url}
+      alt="Device"
+      className="object-contain"
+      style={{ width: size, height: size }}
+      onError={() => setImgError(true)}
+    />
+  );
+}
+
 type SafeUser = Omit<User, "password">;
 
 function UnitRow({ unit, devices, tenants, networks, onDelete, onProvision, onDeprovision, onEdit }: {
@@ -394,7 +413,9 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                     className="rounded"
                     data-testid={`checkbox-device-${device.id}`}
                   />
-                  <DeviceIcon type={device.deviceType} className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted/50">
+                    <DeviceImage iconId={device.iconId} deviceType={device.deviceType} size={28} />
+                  </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <p className="text-sm font-medium truncate">{device.name}</p>

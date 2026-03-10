@@ -102,6 +102,7 @@ export const devices = pgTable("devices", {
   model: text("model"),
   deviceType: deviceTypeEnum("device_type").default("other"),
   portCount: integer("port_count"),
+  iconId: text("icon_id"),
   unifiDeviceId: text("unifi_device_id"),
   buildingId: varchar("building_id"),
   communityId: varchar("community_id"),

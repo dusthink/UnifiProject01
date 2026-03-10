@@ -1136,6 +1136,25 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/devices/:id/set-port-vlan", requireAdmin, async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) return res.status(404).json({ message: "Device not found" });
+      const { controllerId, siteId = "default", portIdx, nativeVlan } = req.body;
+      if (!controllerId || portIdx == null || nativeVlan == null) {
+        return res.status(400).json({ message: "controllerId, portIdx, and nativeVlan are required" });
+      }
+      if (!device.unifiDeviceId) return res.status(400).json({ message: "Device has no UniFi device ID" });
+      const controller = await storage.getController(controllerId);
+      if (!controller?.isVerified) return res.status(400).json({ message: "Controller not verified" });
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      await client.setPortProfile(siteId, device.unifiDeviceId, portIdx, nativeVlan);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.patch("/api/networks/:id", requireAdmin, async (req, res) => {
     try {
       const existing = await storage.getNetwork(req.params.id);

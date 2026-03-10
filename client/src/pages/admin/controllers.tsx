@@ -630,34 +630,58 @@ function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }:
   const [details, setDetails] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [drifts, setDrifts] = useState<Array<{ field: string; label: string; local: string; controller: string }>>([]);
+  const [driftsDismissed, setDriftsDismissed] = useState(false);
 
   useEffect(() => {
     if (editNetwork?.id) {
       setLoading(true);
       setDetails(null);
       setShowAdvanced(false);
+      setDrifts([]);
+      setDriftsDismissed(false);
       fetch(`/api/networks/${editNetwork.id}/details`, { credentials: "include" })
         .then(r => r.json())
         .then(d => {
+          const detectedDrifts: Array<{ field: string; label: string; local: string; controller: string }> = [];
+          if (d.unifi && d.local) {
+            const checks: Array<{ field: string; label: string; localVal: any; ctrlVal: any; format?: (v: any) => string }> = [
+              { field: "name", label: "Name", localVal: d.local.name, ctrlVal: d.unifi.name },
+              { field: "ipSubnet", label: "IP Subnet", localVal: d.local.ipSubnet, ctrlVal: d.unifi.ip_subnet },
+              { field: "dhcpEnabled", label: "DHCP Server", localVal: d.local.dhcpEnabled, ctrlVal: d.unifi.dhcpd_enabled, format: (v: any) => v ? "Enabled" : "Disabled" },
+              { field: "dhcpStart", label: "DHCP Start", localVal: d.local.dhcpStart, ctrlVal: d.unifi.dhcpd_start },
+              { field: "dhcpStop", label: "DHCP Stop", localVal: d.local.dhcpStop, ctrlVal: d.unifi.dhcpd_stop },
+            ];
+            for (const c of checks) {
+              const lv = c.localVal ?? "";
+              const cv = c.ctrlVal ?? "";
+              if (String(lv) !== String(cv) && (lv || cv)) {
+                const fmt = c.format || ((v: any) => String(v || "—"));
+                detectedDrifts.push({ field: c.field, label: c.label, local: fmt(lv), controller: fmt(cv) });
+              }
+            }
+          }
+          setDrifts(detectedDrifts);
+
           if (d.unifi) {
             setEditNetwork((prev: any) => prev ? {
               ...prev,
-              name: d.unifi.name || prev.name,
-              ipSubnet: d.unifi.ip_subnet || prev.ipSubnet,
+              name: d.unifi.name !== undefined ? d.unifi.name : prev.name,
+              ipSubnet: d.unifi.ip_subnet !== undefined ? d.unifi.ip_subnet : prev.ipSubnet,
               vlanId: d.unifi.vlan ?? prev.vlanId,
               dhcpEnabled: d.unifi.dhcpd_enabled ?? prev.dhcpEnabled,
-              dhcpStart: d.unifi.dhcpd_start || prev.dhcpStart,
-              dhcpStop: d.unifi.dhcpd_stop || prev.dhcpStop,
-              purpose: d.unifi.purpose || prev.purpose,
-              networkgroup: d.unifi.networkgroup || "LAN",
+              dhcpStart: d.unifi.dhcpd_start !== undefined ? d.unifi.dhcpd_start : prev.dhcpStart,
+              dhcpStop: d.unifi.dhcpd_stop !== undefined ? d.unifi.dhcpd_stop : prev.dhcpStop,
+              purpose: d.unifi.purpose ?? prev.purpose,
+              networkgroup: d.unifi.networkgroup ?? "LAN",
               vlanEnabled: d.unifi.vlan_enabled ?? true,
               dhcpdDnsEnabled: d.unifi.dhcpd_dns_enabled ?? false,
-              dhcpdDns1: d.unifi.dhcpd_dns_1 || "",
-              dhcpdDns2: d.unifi.dhcpd_dns_2 || "",
+              dhcpdDns1: d.unifi.dhcpd_dns_1 ?? "",
+              dhcpdDns2: d.unifi.dhcpd_dns_2 ?? "",
               dhcpdLeasetime: d.unifi.dhcpd_leasetime ?? 86400,
               dhcpdGatewayEnabled: d.unifi.dhcpd_gateway_enabled ?? false,
-              dhcpdGateway: d.unifi.dhcpd_gateway || "",
-              domainName: d.unifi.domain_name || "",
+              dhcpdGateway: d.unifi.dhcpd_gateway ?? "",
+              domainName: d.unifi.domain_name ?? "",
               igmpSnooping: d.unifi.igmp_snooping ?? false,
               internetAccessEnabled: d.unifi.internet_access_enabled ?? true,
             } : prev);
@@ -690,6 +714,70 @@ function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }:
           </div>
         ) : editNetwork && (
           <div className="space-y-4">
+            {drifts.length > 0 && !driftsDismissed && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 p-3" data-testid="banner-network-drift">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Settings out of sync</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                      {drifts.length} field{drifts.length > 1 ? "s" : ""} differ between local database and the UniFi controller.
+                      The form is showing controller values.
+                    </p>
+                    <div className="mt-2 space-y-1">
+                      {drifts.map(dr => (
+                        <div key={dr.field} className="flex items-center gap-2 text-xs">
+                          <span className="font-medium text-amber-800 dark:text-amber-300 w-24">{dr.label}:</span>
+                          <span className="text-amber-700 dark:text-amber-400">
+                            <span className="line-through opacity-60">{dr.local}</span>
+                            {" → "}
+                            <span className="font-medium">{dr.controller}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs border-amber-400 text-amber-800 hover:bg-amber-100 dark:border-amber-600 dark:text-amber-300 dark:hover:bg-amber-900/50"
+                        onClick={async () => {
+                          try {
+                            const resp = await fetch(`/api/networks/${editNetwork.id}/sync-from-controller`, {
+                              method: "POST",
+                              credentials: "include",
+                            });
+                            if (!resp.ok) {
+                              const err = await resp.json();
+                              throw new Error(err.message || "Sync failed");
+                            }
+                            setDrifts([]);
+                            setDriftsDismissed(true);
+                            queryClient.invalidateQueries({ queryKey: ["/api/networks"] });
+                          } catch (e: any) {
+                            console.error("Sync failed:", e.message);
+                          }
+                        }}
+                        data-testid="button-sync-from-controller"
+                      >
+                        <Download className="h-3 w-3 mr-1" />
+                        Sync DB from Controller
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs text-amber-700 dark:text-amber-400"
+                        onClick={() => setDriftsDismissed(true)}
+                        data-testid="button-dismiss-drift"
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <Label>Name</Label>
               <Input

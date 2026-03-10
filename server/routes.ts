@@ -959,6 +959,34 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/networks/:id/sync-from-controller", requireAdmin, async (req, res) => {
+    try {
+      const network = await storage.getNetwork(req.params.id);
+      if (!network) return res.status(404).json({ message: "Network not found" });
+      if (!network.unifiNetworkId) return res.status(400).json({ message: "Network has no UniFi ID" });
+
+      const controller = await storage.getController(network.controllerId);
+      if (!controller?.isVerified) return res.status(400).json({ message: "Controller not verified" });
+
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      const raw = await client.getNetworkDetail(network.siteId || "default", network.unifiNetworkId);
+      if (!raw) return res.status(404).json({ message: "Network not found on controller" });
+
+      const dbUpdates: any = {};
+      if (raw.name !== undefined) dbUpdates.name = raw.name;
+      if (raw.ip_subnet !== undefined) dbUpdates.ipSubnet = raw.ip_subnet;
+      if (raw.dhcpd_enabled !== undefined) dbUpdates.dhcpEnabled = raw.dhcpd_enabled;
+      if (raw.dhcpd_start !== undefined) dbUpdates.dhcpStart = raw.dhcpd_start;
+      if (raw.dhcpd_stop !== undefined) dbUpdates.dhcpStop = raw.dhcpd_stop;
+
+      const updated = await storage.updateNetwork(req.params.id, dbUpdates);
+      if (!updated) return res.status(404).json({ message: "Network not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: `Failed to sync from controller: ${err.message}` });
+    }
+  });
+
   app.get("/api/wifi-networks/:id/details", requireAdmin, async (req, res) => {
     try {
       const wifi = await storage.getWifiNetwork(req.params.id);

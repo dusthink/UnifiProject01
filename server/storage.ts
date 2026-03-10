@@ -1,7 +1,7 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers, sites, networks, wifiNetworks,
+  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers, sites, networks, wifiNetworks, controllerBackups, controllerBackupSettings,
   type User, type InsertUser,
   type Community, type InsertCommunity,
   type Building, type InsertBuilding,
@@ -13,6 +13,8 @@ import {
   type Network, type InsertNetwork,
   type WifiNetwork, type InsertWifiNetwork,
   type Site, type InsertSite,
+  type ControllerBackup, type InsertControllerBackup,
+  type ControllerBackupSettings, type InsertControllerBackupSettings,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -85,6 +87,17 @@ export interface IStorage {
   getSite(id: string): Promise<Site | undefined>;
   createSite(data: InsertSite): Promise<Site>;
   deleteSitesByController(controllerId: string): Promise<void>;
+
+  getBackupSettings(controllerId: string): Promise<ControllerBackupSettings | undefined>;
+  getAllBackupSettings(): Promise<ControllerBackupSettings[]>;
+  upsertBackupSettings(data: InsertControllerBackupSettings): Promise<ControllerBackupSettings>;
+  updateBackupSettings(controllerId: string, data: Partial<InsertControllerBackupSettings>): Promise<ControllerBackupSettings | undefined>;
+
+  getBackupsByController(controllerId: string): Promise<ControllerBackup[]>;
+  getBackup(id: string): Promise<ControllerBackup | undefined>;
+  createBackup(data: InsertControllerBackup): Promise<ControllerBackup>;
+  deleteBackup(id: string): Promise<void>;
+  deleteExpiredBackups(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -363,6 +376,66 @@ export class DatabaseStorage implements IStorage {
 
   async deleteSitesByController(controllerId: string): Promise<void> {
     await db.delete(sites).where(eq(sites.controllerId, controllerId));
+  }
+
+  async getBackupSettings(controllerId: string): Promise<ControllerBackupSettings | undefined> {
+    const [s] = await db.select().from(controllerBackupSettings).where(eq(controllerBackupSettings.controllerId, controllerId));
+    return s;
+  }
+
+  async getAllBackupSettings(): Promise<ControllerBackupSettings[]> {
+    return db.select().from(controllerBackupSettings).where(eq(controllerBackupSettings.enabled, true));
+  }
+
+  async upsertBackupSettings(data: InsertControllerBackupSettings): Promise<ControllerBackupSettings> {
+    const existing = await this.getBackupSettings(data.controllerId);
+    if (existing) {
+      const [updated] = await db.update(controllerBackupSettings).set(data).where(eq(controllerBackupSettings.controllerId, data.controllerId)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(controllerBackupSettings).values(data).returning();
+    return created;
+  }
+
+  async updateBackupSettings(controllerId: string, data: Partial<InsertControllerBackupSettings>): Promise<ControllerBackupSettings | undefined> {
+    const [updated] = await db.update(controllerBackupSettings).set(data).where(eq(controllerBackupSettings.controllerId, controllerId)).returning();
+    return updated;
+  }
+
+  async getBackupsByController(controllerId: string): Promise<ControllerBackup[]> {
+    return db.select({
+      id: controllerBackups.id,
+      controllerId: controllerBackups.controllerId,
+      filename: controllerBackups.filename,
+      fileData: controllerBackups.fileData,
+      fileSize: controllerBackups.fileSize,
+      createdAt: controllerBackups.createdAt,
+      expiresAt: controllerBackups.expiresAt,
+      schedule: controllerBackups.schedule,
+    }).from(controllerBackups).where(eq(controllerBackups.controllerId, controllerId));
+  }
+
+  async getBackup(id: string): Promise<ControllerBackup | undefined> {
+    const [b] = await db.select().from(controllerBackups).where(eq(controllerBackups.id, id));
+    return b;
+  }
+
+  async createBackup(data: InsertControllerBackup): Promise<ControllerBackup> {
+    const [b] = await db.insert(controllerBackups).values(data).returning();
+    return b;
+  }
+
+  async deleteBackup(id: string): Promise<void> {
+    await db.delete(controllerBackups).where(eq(controllerBackups.id, id));
+  }
+
+  async deleteExpiredBackups(): Promise<number> {
+    const now = new Date();
+    const expired = await db.select({ id: controllerBackups.id }).from(controllerBackups).where(sql`${controllerBackups.expiresAt} < ${now}`);
+    for (const b of expired) {
+      await db.delete(controllerBackups).where(eq(controllerBackups.id, b.id));
+    }
+    return expired.length;
   }
 }
 

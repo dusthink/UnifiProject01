@@ -385,6 +385,30 @@ export class UnifiClient {
     return this.request(`/api/s/${siteId}/rest/wlanconf`, "POST", body);
   }
 
+  async triggerBackup(siteId: string = "default"): Promise<{ url: string }> {
+    const data = await this.request(`/api/s/${siteId}/cmd/backup`, "POST", { cmd: "backup" });
+    const url = data?.data?.[0]?.url || data?.url;
+    if (!url) throw new Error("Backup trigger did not return a download URL");
+    return { url };
+  }
+
+  async downloadBackup(backupUrl: string): Promise<Buffer> {
+    const headers: Record<string, string> = {};
+    if (this.authCookie && Date.now() < this.authCookie.expires) {
+      headers["Cookie"] = this.authCookie.value;
+    } else {
+      await this.login();
+      if (this.authCookie) headers["Cookie"] = this.authCookie.value;
+    }
+    if (this.csrfToken) headers["X-CSRF-Token"] = this.csrfToken;
+
+    const fullUrl = backupUrl.startsWith("http") ? backupUrl : `${this.baseUrl}${backupUrl}`;
+    const response = await proxyFetch(fullUrl, { method: "GET", headers });
+    if (!response.ok) throw new Error(`Backup download failed: ${response.status}`);
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
   async updateWlanPassword(siteId: string, wlanId: string, newPassword: string): Promise<any> {
     return this.request(`/api/s/${siteId}/rest/wlanconf/${wlanId}`, "PUT", { x_passphrase: newPassword });
   }

@@ -1066,6 +1066,118 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/controllers/:id/backup-settings", requireAdmin, async (req, res) => {
+    const settings = await storage.getBackupSettings(req.params.id);
+    res.json(settings || { controllerId: req.params.id, enabled: false, schedule: "daily" });
+  });
+
+  app.put("/api/controllers/:id/backup-settings", requireAdmin, async (req, res) => {
+    try {
+      const { enabled, schedule, consentAccepted } = req.body;
+      const controllerId = req.params.id;
+      const controller = await storage.getController(controllerId);
+      if (!controller) return res.status(404).json({ message: "Controller not found" });
+
+      if (enabled && !consentAccepted) {
+        const existing = await storage.getBackupSettings(controllerId);
+        if (!existing?.consentAcceptedAt) {
+          return res.status(400).json({ message: "You must accept the cloud storage consent to enable backups." });
+        }
+      }
+
+      const retentionDays: Record<string, number> = { daily: 7, weekly: 30, monthly: 180 };
+      const intervalMs: Record<string, number> = { daily: 86400000, weekly: 604800000, monthly: 2592000000 };
+
+      const now = new Date();
+      const nextBackupAt = enabled ? new Date(now.getTime() + (intervalMs[schedule] || intervalMs.daily)) : null;
+
+      const settings = await storage.upsertBackupSettings({
+        controllerId,
+        enabled: enabled ?? false,
+        schedule: schedule || "daily",
+        consentAcceptedAt: consentAccepted ? now : undefined,
+        consentAcceptedBy: consentAccepted ? (req.user as any)?.id : undefined,
+        nextBackupAt,
+      });
+      res.json(settings);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/controllers/:id/backups", requireAdmin, async (req, res) => {
+    const backups = await storage.getBackupsByController(req.params.id);
+    res.json(backups.map(b => ({ ...b, fileData: undefined })));
+  });
+
+  app.post("/api/controllers/:id/backups/trigger", requireAdmin, async (req, res) => {
+    try {
+      const controller = await storage.getController(req.params.id);
+      if (!controller) return res.status(404).json({ message: "Controller not found" });
+      if (!controller.isVerified) return res.status(400).json({ message: "Controller not verified" });
+
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      const { url } = await client.triggerBackup();
+      const fileBuffer = await client.downloadBackup(url);
+      const base64Data = fileBuffer.toString("base64");
+
+      const settings = await storage.getBackupSettings(controller.id);
+      const schedule = settings?.schedule || "daily";
+      const retentionDays: Record<string, number> = { daily: 7, weekly: 30, monthly: 180 };
+      const retention = retentionDays[schedule] || 7;
+
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + retention * 86400000);
+      const filename = `backup_${controller.name.replace(/[^a-zA-Z0-9]/g, "_")}_${now.toISOString().replace(/[:.]/g, "-")}.unf`;
+
+      const backup = await storage.createBackup({
+        controllerId: controller.id,
+        filename,
+        fileData: base64Data,
+        fileSize: fileBuffer.length,
+        createdAt: now,
+        expiresAt,
+        schedule,
+      });
+
+      if (settings) {
+        const intervalMs: Record<string, number> = { daily: 86400000, weekly: 604800000, monthly: 2592000000 };
+        await storage.updateBackupSettings(controller.id, {
+          lastBackupAt: now,
+          nextBackupAt: new Date(now.getTime() + (intervalMs[schedule] || intervalMs.daily)),
+        });
+      }
+
+      res.json({ ...backup, fileData: undefined });
+    } catch (err: any) {
+      res.status(500).json({ message: `Backup failed: ${err.message}` });
+    }
+  });
+
+  app.get("/api/backups/:id/download", requireAdmin, async (req, res) => {
+    try {
+      const backup = await storage.getBackup(req.params.id);
+      if (!backup) return res.status(404).json({ message: "Backup not found" });
+
+      const buffer = Buffer.from(backup.fileData, "base64");
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${backup.filename}"`);
+      res.setHeader("Content-Length", buffer.length);
+      res.send(buffer);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/backups/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteBackup(req.params.id);
+      res.status(204).end();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/units/:id/provision", requireAdmin, async (req, res) => {
     try {
       const unit = await storage.getUnit(req.params.id);
@@ -1277,6 +1389,56 @@ export async function registerRoutes(
     const { password: _, ...safeUser } = user;
     res.status(201).json(safeUser);
   });
+
+  setInterval(async () => {
+    try {
+      const allSettings = await storage.getAllBackupSettings();
+      const now = new Date();
+      for (const settings of allSettings) {
+        if (!settings.enabled || !settings.nextBackupAt) continue;
+        if (new Date(settings.nextBackupAt) > now) continue;
+
+        try {
+          const controller = await storage.getController(settings.controllerId);
+          if (!controller?.isVerified) continue;
+
+          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+          const { url } = await client.triggerBackup();
+          const fileBuffer = await client.downloadBackup(url);
+          const base64Data = fileBuffer.toString("base64");
+
+          const retentionDays: Record<string, number> = { daily: 7, weekly: 30, monthly: 180 };
+          const intervalMs: Record<string, number> = { daily: 86400000, weekly: 604800000, monthly: 2592000000 };
+          const retention = retentionDays[settings.schedule] || 7;
+          const expiresAt = new Date(now.getTime() + retention * 86400000);
+          const filename = `backup_${controller.name.replace(/[^a-zA-Z0-9]/g, "_")}_${now.toISOString().replace(/[:.]/g, "-")}.unf`;
+
+          await storage.createBackup({
+            controllerId: controller.id,
+            filename,
+            fileData: base64Data,
+            fileSize: fileBuffer.length,
+            createdAt: now,
+            expiresAt,
+            schedule: settings.schedule,
+          });
+
+          await storage.updateBackupSettings(controller.id, {
+            lastBackupAt: now,
+            nextBackupAt: new Date(now.getTime() + (intervalMs[settings.schedule] || intervalMs.daily)),
+          });
+
+          console.log(`[backup] Scheduled backup completed for controller ${controller.name}`);
+        } catch (err: any) {
+          console.error(`[backup] Failed for controller ${settings.controllerId}: ${err.message}`);
+        }
+      }
+
+      await storage.deleteExpiredBackups();
+    } catch (err: any) {
+      console.error(`[backup] Scheduler error: ${err.message}`);
+    }
+  }, 60000);
 
   return httpServer;
 }

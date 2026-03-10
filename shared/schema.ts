@@ -131,6 +131,30 @@ export const wifiNetworks = pgTable("wifi_networks", {
   isManaged: boolean("is_managed").default(true),
 });
 
+export const backupScheduleEnum = pgEnum("backup_schedule", ["daily", "weekly", "monthly"]);
+
+export const controllerBackups = pgTable("controller_backups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  controllerId: varchar("controller_id").notNull(),
+  filename: text("filename").notNull(),
+  fileData: text("file_data").notNull(),
+  fileSize: integer("file_size").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  schedule: text("schedule").notNull(),
+});
+
+export const controllerBackupSettings = pgTable("controller_backup_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  controllerId: varchar("controller_id").notNull().unique(),
+  enabled: boolean("enabled").default(false).notNull(),
+  schedule: text("schedule").default("daily").notNull(),
+  consentAcceptedAt: timestamp("consent_accepted_at"),
+  consentAcceptedBy: varchar("consent_accepted_by"),
+  lastBackupAt: timestamp("last_backup_at"),
+  nextBackupAt: timestamp("next_backup_at"),
+});
+
 export const inviteTokens = pgTable("invite_tokens", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   token: text("token").notNull().unique(),
@@ -189,6 +213,8 @@ export const insertControllerSchema = createInsertSchema(controllers).omit({ id:
 export const insertNetworkSchema = createInsertSchema(networks).omit({ id: true });
 export const insertWifiNetworkSchema = createInsertSchema(wifiNetworks).omit({ id: true });
 export const insertSiteSchema = createInsertSchema(sites).omit({ id: true });
+export const insertControllerBackupSchema = createInsertSchema(controllerBackups).omit({ id: true });
+export const insertControllerBackupSettingsSchema = createInsertSchema(controllerBackupSettings).omit({ id: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertCommunitySchema = createInsertSchema(communities).omit({ id: true });
 export const insertBuildingSchema = createInsertSchema(buildings).omit({ id: true });
@@ -217,6 +243,10 @@ export type InsertWifiNetwork = z.infer<typeof insertWifiNetworkSchema>;
 export type WifiNetwork = typeof wifiNetworks.$inferSelect;
 export type InsertSite = z.infer<typeof insertSiteSchema>;
 export type Site = typeof sites.$inferSelect;
+export type InsertControllerBackup = z.infer<typeof insertControllerBackupSchema>;
+export type ControllerBackup = typeof controllerBackups.$inferSelect;
+export type InsertControllerBackupSettings = z.infer<typeof insertControllerBackupSettingsSchema>;
+export type ControllerBackupSettings = typeof controllerBackupSettings.$inferSelect;
 export type InsertInviteToken = z.infer<typeof insertInviteTokenSchema>;
 export type InviteToken = typeof inviteTokens.$inferSelect;
 

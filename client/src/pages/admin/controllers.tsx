@@ -10,7 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal, Radio, ArrowLeftRight } from "lucide-react";
+import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal, Radio, ArrowLeftRight, HardDrive, Download, AlertTriangle, Shield } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -270,6 +271,330 @@ const wifiDefaults = {
   scheduleEnabled: false,
 };
 
+interface BackupEntry {
+  id: string;
+  controllerId: string;
+  filename: string;
+  fileSize: number;
+  createdAt: string;
+  expiresAt: string;
+  schedule: string;
+}
+
+interface BackupSettings {
+  controllerId: string;
+  enabled: boolean;
+  schedule: string;
+  consentAcceptedAt?: string | null;
+  lastBackupAt?: string | null;
+  nextBackupAt?: string | null;
+}
+
+function BackupDialog({ controller, open, onOpenChange }: { controller: Controller; open: boolean; onOpenChange: (v: boolean) => void }) {
+  const { toast } = useToast();
+  const [showConsent, setShowConsent] = useState(false);
+  const [pendingSchedule, setPendingSchedule] = useState("daily");
+  const [triggeringBackup, setTriggeringBackup] = useState(false);
+
+  const settingsQuery = useQuery<BackupSettings>({
+    queryKey: ["/api/controllers", controller.id, "backup-settings"],
+    queryFn: async () => {
+      const res = await fetch(`/api/controllers/${controller.id}/backup-settings`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load backup settings");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const backupsQuery = useQuery<BackupEntry[]>({
+    queryKey: ["/api/controllers", controller.id, "backups"],
+    queryFn: async () => {
+      const res = await fetch(`/api/controllers/${controller.id}/backups`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load backups");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const settings = settingsQuery.data;
+
+  const handleToggleBackups = async (enabled: boolean) => {
+    if (enabled && !settings?.consentAcceptedAt) {
+      setShowConsent(true);
+      return;
+    }
+    try {
+      await apiRequest("PUT", `/api/controllers/${controller.id}/backup-settings`, {
+        enabled,
+        schedule: settings?.schedule || "daily",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/controllers", controller.id, "backup-settings"] });
+      toast({ title: enabled ? "Backups enabled" : "Backups disabled" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleConsentAccept = async () => {
+    try {
+      await apiRequest("PUT", `/api/controllers/${controller.id}/backup-settings`, {
+        enabled: true,
+        schedule: pendingSchedule,
+        consentAccepted: true,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/controllers", controller.id, "backup-settings"] });
+      setShowConsent(false);
+      toast({ title: "Backups enabled", description: "Cloud storage consent accepted." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleScheduleChange = async (schedule: string) => {
+    try {
+      await apiRequest("PUT", `/api/controllers/${controller.id}/backup-settings`, {
+        enabled: settings?.enabled ?? false,
+        schedule,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/controllers", controller.id, "backup-settings"] });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleTriggerBackup = async () => {
+    setTriggeringBackup(true);
+    try {
+      await apiRequest("POST", `/api/controllers/${controller.id}/backups/trigger`, {});
+      queryClient.invalidateQueries({ queryKey: ["/api/controllers", controller.id, "backups"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/controllers", controller.id, "backup-settings"] });
+      toast({ title: "Backup completed", description: "Controller backup has been created successfully." });
+    } catch (err: any) {
+      toast({ title: "Backup failed", description: err.message, variant: "destructive" });
+    } finally {
+      setTriggeringBackup(false);
+    }
+  };
+
+  const handleDeleteBackup = async (id: string) => {
+    if (!confirm("Delete this backup? This cannot be undone.")) return;
+    try {
+      await apiRequest("DELETE", `/api/backups/${id}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/controllers", controller.id, "backups"] });
+      toast({ title: "Backup deleted" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleDownloadBackup = (id: string, filename: string) => {
+    const link = document.createElement("a");
+    link.href = `/api/backups/${id}/download`;
+    link.download = filename;
+    link.click();
+  };
+
+  const retentionLabels: Record<string, string> = { daily: "7 days", weekly: "30 days", monthly: "180 days" };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
+  };
+
+  return (
+    <>
+      <Dialog open={open && !showConsent} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle data-testid="text-backup-dialog-title">Controller Backups - {controller.name}</DialogTitle>
+            <DialogDescription>Manage automatic and manual backups for this controller.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="space-y-1">
+                <div className="font-medium text-sm">Automatic Backups</div>
+                <div className="text-xs text-muted-foreground">
+                  {settings?.enabled
+                    ? `Running ${settings.schedule} - Retention: ${retentionLabels[settings.schedule] || "7 days"}`
+                    : "Backups are currently disabled"}
+                </div>
+                {settings?.lastBackupAt && (
+                  <div className="text-xs text-muted-foreground">
+                    Last backup: {new Date(settings.lastBackupAt).toLocaleString()}
+                  </div>
+                )}
+                {settings?.nextBackupAt && settings.enabled && (
+                  <div className="text-xs text-muted-foreground">
+                    Next backup: {new Date(settings.nextBackupAt).toLocaleString()}
+                  </div>
+                )}
+              </div>
+              <Switch
+                checked={settings?.enabled ?? false}
+                onCheckedChange={handleToggleBackups}
+                data-testid="switch-backup-enabled"
+              />
+            </div>
+
+            {settings?.enabled && (
+              <div className="flex items-center gap-4 p-4 border rounded-lg">
+                <Label className="text-sm font-medium">Schedule</Label>
+                <Select value={settings.schedule} onValueChange={handleScheduleChange}>
+                  <SelectTrigger className="w-36" data-testid="select-backup-schedule">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-muted-foreground ml-auto">
+                  Retention: {retentionLabels[settings.schedule] || "7 days"}
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={handleTriggerBackup}
+                disabled={triggeringBackup || !controller.isVerified}
+                data-testid="button-trigger-backup"
+              >
+                {triggeringBackup ? (
+                  <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <HardDrive className="h-4 w-4 mr-1" />
+                )}
+                {triggeringBackup ? "Creating Backup..." : "Backup Now"}
+              </Button>
+              {!controller.isVerified && (
+                <span className="text-xs text-muted-foreground">Controller must be verified to create backups.</span>
+              )}
+            </div>
+
+            <div>
+              <div className="text-sm font-medium mb-2">Backup History</div>
+              {backupsQuery.isLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : (backupsQuery.data?.length ?? 0) === 0 ? (
+                <div className="text-sm text-muted-foreground p-4 text-center border rounded-lg">
+                  No backups yet. Click "Backup Now" to create one.
+                </div>
+              ) : (
+                <ScrollArea className="max-h-[300px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Filename</TableHead>
+                        <TableHead>Size</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead>Expires</TableHead>
+                        <TableHead className="w-[100px]">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {backupsQuery.data?.map((b) => (
+                        <TableRow key={b.id} data-testid={`row-backup-${b.id}`}>
+                          <TableCell className="font-mono text-xs" data-testid={`text-backup-filename-${b.id}`}>{b.filename}</TableCell>
+                          <TableCell className="text-xs">{formatFileSize(b.fileSize)}</TableCell>
+                          <TableCell className="text-xs">{new Date(b.createdAt).toLocaleString()}</TableCell>
+                          <TableCell className="text-xs">{new Date(b.expiresAt).toLocaleString()}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDownloadBackup(b.id, b.filename)}
+                                data-testid={`button-download-backup-${b.id}`}
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDeleteBackup(b.id)}
+                                data-testid={`button-delete-backup-${b.id}`}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showConsent} onOpenChange={setShowConsent}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-amber-500" />
+              Cloud Storage Consent
+            </DialogTitle>
+            <DialogDescription>Please review before enabling controller backups.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-2 dark:bg-amber-950 dark:border-amber-800">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+                <div className="text-sm space-y-2">
+                  <p className="font-medium text-amber-800 dark:text-amber-200">Security Notice</p>
+                  <p className="text-amber-700 dark:text-amber-300">
+                    Controller backups contain sensitive configuration data including network settings,
+                    device configurations, and security credentials. By enabling backups, you acknowledge:
+                  </p>
+                  <ul className="list-disc ml-4 text-amber-700 dark:text-amber-300 space-y-1">
+                    <li>Backup files will be stored in this application's database</li>
+                    <li>Backups contain sensitive network configuration data</li>
+                    <li>You are responsible for controlling access to this platform</li>
+                    <li>Expired backups are automatically deleted based on the retention schedule</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <Label className="text-sm font-medium">Backup Schedule</Label>
+              <Select value={pendingSchedule} onValueChange={setPendingSchedule}>
+                <SelectTrigger className="w-36" data-testid="select-consent-schedule">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setShowConsent(false)} data-testid="button-consent-cancel">
+                Cancel
+              </Button>
+              <Button onClick={handleConsentAccept} data-testid="button-consent-accept">
+                I Understand, Enable Backups
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export default function ControllersPage() {
   const { toast } = useToast();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -294,6 +619,7 @@ export default function ControllersPage() {
   const wf = (field: string, value: any) => setWifi(prev => ({ ...prev, [field]: value }));
   const resetWifi = () => { setWifi(wifiDefaults); setShowWifiAdvanced(false); setShowWifiPassword(false); };
 
+  const [backupDialogCtrl, setBackupDialogCtrl] = useState<Controller | null>(null);
   const [importDevicesOpen, setImportDevicesOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
   const [bulkCount, setBulkCount] = useState("10");

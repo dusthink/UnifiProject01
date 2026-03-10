@@ -1045,6 +1045,179 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/wifi-networks/bulk", requireAdmin, async (req, res) => {
+    try {
+      const { mode, controllerId, siteId: reqSiteId, networkIds, existingWifiId, ssidConfig } = req.body;
+      if (!mode || !controllerId || !Array.isArray(networkIds) || networkIds.length === 0) {
+        return res.status(400).json({ message: "Missing required fields: mode, controllerId, networkIds" });
+      }
+
+      const controller = await storage.getController(controllerId);
+      if (!controller?.isVerified) return res.status(400).json({ message: "Controller not found or not verified" });
+
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      const siteId = reqSiteId || "default";
+
+      const allNetworks = await storage.getNetworksByController(controllerId);
+      const selectedNetworks = allNetworks.filter(n => networkIds.includes(n.id) && n.siteId === siteId);
+      if (selectedNetworks.length === 0) return res.status(400).json({ message: "No valid networks selected for this site" });
+
+      const results: Array<{ networkId: string; networkName: string; success: boolean; error?: string }> = [];
+
+      if (mode === "new") {
+        const cfg = ssidConfig || {};
+        const isPpsk = !!cfg.isPpsk;
+
+        if (isPpsk) {
+          const ppskKeys = selectedNetworks.map(n => ({
+            password: cfg.password || randomBytes(8).toString('base64url'),
+            vlanId: n.vlanId,
+            description: n.name,
+          }));
+          const primaryNetwork = selectedNetworks[0];
+          try {
+            const result = await client.createPpskWlan(siteId, cfg.name, primaryNetwork.unifiNetworkId || "", ppskKeys, {
+              isGuest: cfg.isGuest,
+              hideSsid: cfg.hideSsid,
+              wlanBand: cfg.wlanBand,
+            });
+            const wlanId = result?.data?.[0]?._id;
+            if (wlanId) {
+              await storage.createWifiNetwork({
+                controllerId,
+                name: cfg.name,
+                securityMode: "wpapsk",
+                wpaMode: "wpa2",
+                password: null,
+                networkConfId: primaryNetwork.unifiNetworkId,
+                vlanId: primaryNetwork.vlanId,
+                isGuest: cfg.isGuest || false,
+                enabled: true,
+                unifiWlanId: wlanId,
+                siteId,
+                isManaged: true,
+              });
+              selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: true }));
+            } else {
+              selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: "No WLAN ID returned" }));
+            }
+          } catch (err: any) {
+            selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: err.message }));
+          }
+        } else {
+          for (const net of selectedNetworks) {
+            try {
+              const result = await client.createWlan(siteId, {
+                name: cfg.name,
+                password: cfg.password || undefined,
+                networkId: net.unifiNetworkId || undefined,
+                security: cfg.securityMode || "wpapsk",
+                wpaMode: cfg.wpaMode || "wpa2",
+                enabled: cfg.enabled ?? true,
+                isGuest: cfg.isGuest,
+                hideSsid: cfg.hideSsid,
+                wlanBand: cfg.wlanBand,
+              });
+              const wlanId = result?.data?.[0]?._id;
+              if (wlanId) {
+                await storage.createWifiNetwork({
+                  controllerId,
+                  name: cfg.name,
+                  securityMode: cfg.securityMode || "wpapsk",
+                  wpaMode: cfg.wpaMode || "wpa2",
+                  password: cfg.password || null,
+                  networkConfId: net.unifiNetworkId,
+                  vlanId: net.vlanId,
+                  isGuest: cfg.isGuest || false,
+                  enabled: cfg.enabled ?? true,
+                  unifiWlanId: wlanId,
+                  siteId,
+                  isManaged: true,
+                });
+                results.push({ networkId: net.id, networkName: net.name, success: true });
+              } else {
+                results.push({ networkId: net.id, networkName: net.name, success: false, error: "No WLAN ID returned" });
+              }
+            } catch (err: any) {
+              results.push({ networkId: net.id, networkName: net.name, success: false, error: err.message });
+            }
+          }
+        }
+      } else if (mode === "existing") {
+        if (!existingWifiId) return res.status(400).json({ message: "existingWifiId required for existing mode" });
+        const existingWifi = await storage.getWifiNetwork(existingWifiId);
+        if (!existingWifi) return res.status(404).json({ message: "Existing WiFi network not found" });
+        if (existingWifi.controllerId !== controllerId || existingWifi.siteId !== siteId) {
+          return res.status(400).json({ message: "Existing WiFi does not belong to this controller/site" });
+        }
+        if (!existingWifi.unifiWlanId) return res.status(400).json({ message: "Existing WiFi has no UniFi WLAN ID" });
+
+        const isPpsk = existingWifi.securityMode === "wpapsk" && !existingWifi.password;
+
+        if (isPpsk) {
+          try {
+            const wlanDetail = await client.getWlanDetail(siteId, existingWifi.unifiWlanId);
+            const existingKeys: any[] = wlanDetail?.private_preshared_keys || [];
+            const newKeys = selectedNetworks.map(n => ({
+              key: randomBytes(8).toString('base64url'),
+              vlan: n.vlanId,
+              description: n.name,
+            }));
+            const mergedKeys = [...existingKeys, ...newKeys];
+            await client.updateWlan(siteId, existingWifi.unifiWlanId, { private_preshared_keys: mergedKeys });
+            selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: true }));
+          } catch (err: any) {
+            selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: err.message }));
+          }
+        } else {
+          for (const net of selectedNetworks) {
+            try {
+              const result = await client.createWlan(siteId, {
+                name: existingWifi.name,
+                password: existingWifi.password || undefined,
+                networkId: net.unifiNetworkId || undefined,
+                security: existingWifi.securityMode || "wpapsk",
+                wpaMode: existingWifi.wpaMode || "wpa2",
+                enabled: existingWifi.enabled ?? true,
+                isGuest: existingWifi.isGuest || false,
+              });
+              const wlanId = result?.data?.[0]?._id;
+              if (wlanId) {
+                await storage.createWifiNetwork({
+                  controllerId,
+                  name: existingWifi.name,
+                  securityMode: existingWifi.securityMode || "wpapsk",
+                  wpaMode: existingWifi.wpaMode || "wpa2",
+                  password: existingWifi.password,
+                  networkConfId: net.unifiNetworkId,
+                  vlanId: net.vlanId,
+                  isGuest: existingWifi.isGuest || false,
+                  enabled: existingWifi.enabled ?? true,
+                  unifiWlanId: wlanId,
+                  siteId,
+                  isManaged: true,
+                });
+                results.push({ networkId: net.id, networkName: net.name, success: true });
+              } else {
+                results.push({ networkId: net.id, networkName: net.name, success: false, error: "No WLAN ID returned" });
+              }
+            } catch (err: any) {
+              results.push({ networkId: net.id, networkName: net.name, success: false, error: err.message });
+            }
+          }
+        }
+      } else {
+        return res.status(400).json({ message: "Invalid mode. Use 'new' or 'existing'." });
+      }
+
+      const succeeded = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      res.json({ total: results.length, succeeded, failed, results });
+    } catch (err: any) {
+      res.status(500).json({ message: `Bulk WiFi operation failed: ${err.message}` });
+    }
+  });
+
   app.delete("/api/wifi-networks/:id", requireAdmin, async (req, res) => {
     try {
       const wifiNet = await storage.getWifiNetwork(req.params.id);

@@ -409,6 +409,15 @@ export class UnifiClient {
     return Buffer.from(arrayBuffer);
   }
 
+  async getWlanDetail(siteId: string, wlanId: string): Promise<any> {
+    const data = await this.request(`/api/s/${siteId}/rest/wlanconf/${wlanId}`, "GET");
+    return data?.data?.[0] || data;
+  }
+
+  async updateWlan(siteId: string, wlanId: string, updates: Record<string, any>): Promise<any> {
+    return this.request(`/api/s/${siteId}/rest/wlanconf/${wlanId}`, "PUT", updates);
+  }
+
   async updateWlanPassword(siteId: string, wlanId: string, newPassword: string): Promise<any> {
     return this.request(`/api/s/${siteId}/rest/wlanconf/${wlanId}`, "PUT", { x_passphrase: newPassword });
   }

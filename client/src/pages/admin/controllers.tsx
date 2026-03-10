@@ -12,6 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal, Radio, ArrowLeftRight, HardDrive, Download, AlertTriangle, Shield } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -646,6 +647,31 @@ export default function ControllersPage() {
   const [wifi, setWifi] = useState(wifiDefaults);
   const wf = (field: string, value: any) => setWifi(prev => ({ ...prev, [field]: value }));
   const resetWifi = () => { setWifi(wifiDefaults); setShowWifiAdvanced(false); setShowWifiPassword(false); };
+
+  const [bulkWifiOpen, setBulkWifiOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
+  const [bulkWifiMode, setBulkWifiMode] = useState<"new" | "existing">("new");
+  const [bulkWifiName, setBulkWifiName] = useState("");
+  const [bulkWifiPassword, setBulkWifiPassword] = useState("");
+  const [bulkWifiSecurity, setBulkWifiSecurity] = useState("wpapsk");
+  const [bulkWifiIsPpsk, setBulkWifiIsPpsk] = useState(false);
+  const [bulkWifiIsGuest, setBulkWifiIsGuest] = useState(false);
+  const [bulkWifiSelectedNetworks, setBulkWifiSelectedNetworks] = useState<string[]>([]);
+  const [bulkWifiExistingId, setBulkWifiExistingId] = useState("");
+  const [bulkWifiSubmitting, setBulkWifiSubmitting] = useState(false);
+  const [bulkWifiResult, setBulkWifiResult] = useState<{ total: number; succeeded: number; failed: number; results: any[] } | null>(null);
+
+  const resetBulkWifi = () => {
+    setBulkWifiMode("new");
+    setBulkWifiName("");
+    setBulkWifiPassword("");
+    setBulkWifiSecurity("wpapsk");
+    setBulkWifiIsPpsk(false);
+    setBulkWifiIsGuest(false);
+    setBulkWifiSelectedNetworks([]);
+    setBulkWifiExistingId("");
+    setBulkWifiSubmitting(false);
+    setBulkWifiResult(null);
+  };
 
   const [backupDialogCtrl, setBackupDialogCtrl] = useState<Controller | null>(null);
   const [importDevicesOpen, setImportDevicesOpen] = useState(false);
@@ -1948,7 +1974,16 @@ export default function ControllersPage() {
 
                                   {siteTab === "wifi" && (
                                     <div className="p-3">
-                                      <div className="flex items-center justify-end mb-3">
+                                      <div className="flex items-center justify-end gap-2 mb-3">
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => { resetBulkWifi(); setBulkWifiOpen({ controllerId: ctrl.id, siteId: siteKey }); }}
+                                          data-testid={`button-bulk-wifi-${siteKey}`}
+                                        >
+                                          <Layers className="h-3.5 w-3.5 mr-1" />
+                                          Bulk WiFi
+                                        </Button>
                                         <Button
                                           size="sm"
                                           onClick={() => setAddWifiOpen({ controllerId: ctrl.id, siteId: siteKey })}
@@ -2153,6 +2188,282 @@ export default function ControllersPage() {
           onOpenChange={(v) => { if (!v) setBackupDialogCtrl(null); }}
         />
       )}
+
+      <Dialog open={!!bulkWifiOpen} onOpenChange={(open) => { if (!open) { setBulkWifiOpen(null); resetBulkWifi(); } }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle data-testid="text-bulk-wifi-title">Bulk WiFi Assignment</DialogTitle>
+            <DialogDescription>Create new SSIDs across multiple networks or assign existing SSIDs to additional networks.</DialogDescription>
+          </DialogHeader>
+
+          {bulkWifiResult ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
+                <div className="text-center flex-1">
+                  <div className="text-2xl font-bold text-green-600" data-testid="text-bulk-wifi-succeeded">{bulkWifiResult.succeeded}</div>
+                  <div className="text-xs text-muted-foreground">Succeeded</div>
+                </div>
+                {bulkWifiResult.failed > 0 && (
+                  <div className="text-center flex-1">
+                    <div className="text-2xl font-bold text-destructive">{bulkWifiResult.failed}</div>
+                    <div className="text-xs text-muted-foreground">Failed</div>
+                  </div>
+                )}
+              </div>
+              {bulkWifiResult.results.filter((r: any) => !r.success).length > 0 && (
+                <ScrollArea className="h-[120px] border rounded-md p-3">
+                  {bulkWifiResult.results.filter((r: any) => !r.success).map((r: any, i: number) => (
+                    <p key={i} className="text-xs text-destructive mb-1">{r.networkName}: {r.error}</p>
+                  ))}
+                </ScrollArea>
+              )}
+              <div className="flex justify-end">
+                <Button onClick={() => { setBulkWifiOpen(null); resetBulkWifi(); queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller"] }); }} data-testid="button-bulk-wifi-done">
+                  Done
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex border-b">
+                <button
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${bulkWifiMode === "new" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                  onClick={() => { setBulkWifiMode("new"); setBulkWifiSelectedNetworks([]); }}
+                  data-testid="button-bulk-wifi-tab-new"
+                >
+                  New SSID
+                </button>
+                <button
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${bulkWifiMode === "existing" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                  onClick={() => { setBulkWifiMode("existing"); setBulkWifiSelectedNetworks([]); }}
+                  data-testid="button-bulk-wifi-tab-existing"
+                >
+                  Existing SSID
+                </button>
+              </div>
+
+              {bulkWifiMode === "new" && (
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-sm">SSID Name</Label>
+                    <Input
+                      value={bulkWifiName}
+                      onChange={(e) => setBulkWifiName(e.target.value)}
+                      placeholder="Network Name"
+                      data-testid="input-bulk-wifi-name"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm">Security</Label>
+                    <Select value={bulkWifiSecurity} onValueChange={(v) => { setBulkWifiSecurity(v); setBulkWifiIsPpsk(v === "ppsk"); }}>
+                      <SelectTrigger data-testid="select-bulk-wifi-security">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="wpapsk">WPA Personal</SelectItem>
+                        <SelectItem value="ppsk">WPA Personal (PPSK)</SelectItem>
+                        <SelectItem value="open">Open</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {bulkWifiSecurity === "wpapsk" && (
+                    <div>
+                      <Label className="text-sm">Password</Label>
+                      <Input
+                        type="password"
+                        value={bulkWifiPassword}
+                        onChange={(e) => setBulkWifiPassword(e.target.value)}
+                        placeholder="WiFi Password (min 8 characters)"
+                        data-testid="input-bulk-wifi-password"
+                      />
+                    </div>
+                  )}
+                  {bulkWifiIsPpsk && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-300">
+                      <p className="font-medium mb-1">PPSK Mode</p>
+                      <p>A single SSID will be created with a unique pre-shared key for each selected network. Each key maps to its network's VLAN automatically.</p>
+                    </div>
+                  )}
+                  {!bulkWifiIsPpsk && bulkWifiSecurity !== "open" && (
+                    <div className="p-3 bg-muted/50 border rounded-lg text-xs text-muted-foreground">
+                      <p className="font-medium mb-1">Individual SSID Mode</p>
+                      <p>A separate WiFi network will be created on each selected network, all sharing the same SSID name and password.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {bulkWifiMode === "existing" && (
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-sm">Select Existing WiFi Network</Label>
+                    <Select value={bulkWifiExistingId} onValueChange={setBulkWifiExistingId}>
+                      <SelectTrigger data-testid="select-bulk-wifi-existing">
+                        <SelectValue placeholder="Choose a WiFi network..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(wifiNetworks || []).filter((wn: any) => wn.isManaged && wn.unifiWlanId).map((wn: any) => (
+                          <SelectItem key={wn.id} value={wn.id}>
+                            {wn.name} {wn.password ? "(WPA)" : "(PPSK)"} — VLAN {wn.vlanId || "N/A"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {bulkWifiExistingId && (() => {
+                    const selected = (wifiNetworks || []).find((wn: any) => wn.id === bulkWifiExistingId);
+                    if (!selected) return null;
+                    const isPpsk = selected.securityMode === "wpapsk" && !selected.password;
+                    return (
+                      <div className="p-3 bg-muted/50 border rounded-lg text-xs text-muted-foreground">
+                        {isPpsk ? (
+                          <p>New PPSK keys will be added to "{selected.name}" for each selected network, each mapped to its VLAN.</p>
+                        ) : (
+                          <p>The configuration of "{selected.name}" will be cloned onto each selected network as a new WiFi network.</p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              <div>
+                <Label className="text-sm mb-2 block">Select Networks ({bulkWifiSelectedNetworks.length} selected)</Label>
+                <ScrollArea className="h-[200px] border rounded-lg p-2">
+                  {(() => {
+                    const nets = siteNetworks || [];
+                    if (nets.length === 0) {
+                      return <p className="text-xs text-muted-foreground p-2 text-center">No networks available. Create networks first.</p>;
+                    }
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded">
+                          <Checkbox
+                            checked={bulkWifiSelectedNetworks.length === nets.length && nets.length > 0}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setBulkWifiSelectedNetworks(nets.map((n: any) => n.id));
+                              } else {
+                                setBulkWifiSelectedNetworks([]);
+                              }
+                            }}
+                            data-testid="checkbox-bulk-wifi-select-all"
+                          />
+                          <span className="text-sm font-medium">Select All</span>
+                        </div>
+                        {nets.map((net: any) => (
+                          <div key={net.id} className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded" data-testid={`checkbox-row-network-${net.id}`}>
+                            <Checkbox
+                              checked={bulkWifiSelectedNetworks.includes(net.id)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setBulkWifiSelectedNetworks(prev => [...prev, net.id]);
+                                } else {
+                                  setBulkWifiSelectedNetworks(prev => prev.filter(id => id !== net.id));
+                                }
+                              }}
+                              data-testid={`checkbox-bulk-wifi-network-${net.id}`}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm">{net.name}</span>
+                              <span className="text-xs text-muted-foreground ml-2">VLAN {net.vlanId}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </ScrollArea>
+              </div>
+
+              {bulkWifiSelectedNetworks.length > 0 && (
+                <div className="p-3 bg-muted/50 border rounded-lg text-xs">
+                  <span className="font-medium">Preview: </span>
+                  {bulkWifiMode === "new" && bulkWifiIsPpsk && (
+                    <span>1 PPSK SSID "{bulkWifiName}" with {bulkWifiSelectedNetworks.length} pre-shared keys will be created</span>
+                  )}
+                  {bulkWifiMode === "new" && !bulkWifiIsPpsk && (
+                    <span>{bulkWifiSelectedNetworks.length} individual WiFi network{bulkWifiSelectedNetworks.length > 1 ? "s" : ""} named "{bulkWifiName}" will be created</span>
+                  )}
+                  {bulkWifiMode === "existing" && (() => {
+                    const sel = (wifiNetworks || []).find((wn: any) => wn.id === bulkWifiExistingId);
+                    const isPpsk = sel && sel.securityMode === "wpapsk" && !sel.password;
+                    if (isPpsk) return <span>{bulkWifiSelectedNetworks.length} PPSK key{bulkWifiSelectedNetworks.length > 1 ? "s" : ""} will be added to "{sel?.name}"</span>;
+                    return <span>{bulkWifiSelectedNetworks.length} WiFi network{bulkWifiSelectedNetworks.length > 1 ? "s" : ""} cloned from "{sel?.name}"</span>;
+                  })()}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => { setBulkWifiOpen(null); resetBulkWifi(); }} data-testid="button-bulk-wifi-cancel">
+                  Cancel
+                </Button>
+                <Button
+                  onClick={async () => {
+                    if (!bulkWifiOpen) return;
+                    if (bulkWifiMode === "new" && !bulkWifiName.trim()) {
+                      toast({ title: "SSID name is required", variant: "destructive" });
+                      return;
+                    }
+                    if (bulkWifiMode === "new" && bulkWifiSecurity === "wpapsk" && bulkWifiPassword.length < 8) {
+                      toast({ title: "Password must be at least 8 characters", variant: "destructive" });
+                      return;
+                    }
+                    if (bulkWifiMode === "existing" && !bulkWifiExistingId) {
+                      toast({ title: "Select an existing WiFi network", variant: "destructive" });
+                      return;
+                    }
+                    if (bulkWifiSelectedNetworks.length === 0) {
+                      toast({ title: "Select at least one network", variant: "destructive" });
+                      return;
+                    }
+                    setBulkWifiSubmitting(true);
+                    try {
+                      const body: any = {
+                        mode: bulkWifiMode,
+                        controllerId: bulkWifiOpen.controllerId,
+                        siteId: bulkWifiOpen.siteId,
+                        networkIds: bulkWifiSelectedNetworks,
+                      };
+                      if (bulkWifiMode === "new") {
+                        body.ssidConfig = {
+                          name: bulkWifiName,
+                          password: bulkWifiPassword || undefined,
+                          securityMode: bulkWifiIsPpsk ? "wpapsk" : bulkWifiSecurity,
+                          isPpsk: bulkWifiIsPpsk,
+                          wpaMode: "wpa2",
+                          isGuest: bulkWifiIsGuest,
+                        };
+                      } else {
+                        body.existingWifiId = bulkWifiExistingId;
+                      }
+                      const res = await apiRequest("POST", "/api/wifi-networks/bulk", body);
+                      const result = await res.json();
+                      setBulkWifiResult(result);
+                      queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller"] });
+                    } catch (err: any) {
+                      toast({ title: "Bulk WiFi failed", description: err.message, variant: "destructive" });
+                    } finally {
+                      setBulkWifiSubmitting(false);
+                    }
+                  }}
+                  disabled={bulkWifiSubmitting || bulkWifiSelectedNetworks.length === 0}
+                  data-testid="button-bulk-wifi-submit"
+                >
+                  {bulkWifiSubmitting ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    `Apply to ${bulkWifiSelectedNetworks.length} Network${bulkWifiSelectedNetworks.length !== 1 ? "s" : ""}`
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

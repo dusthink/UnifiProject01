@@ -1120,6 +1120,7 @@ export async function registerRoutes(
               selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: "No WLAN ID returned" }));
             }
           } catch (err: any) {
+            console.error("[bulk-wifi] PPSK creation error:", err.message);
             selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: err.message }));
           }
           }

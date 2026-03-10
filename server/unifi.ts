@@ -102,7 +102,10 @@ export class UnifiClient {
     }
 
     if (!response.ok) {
-      throw new Error(`UniFi API error: ${response.status} ${response.statusText}`);
+      const errBody = await response.text().catch(() => "");
+      let detail = "";
+      try { const j = JSON.parse(errBody); detail = j?.meta?.msg || j?.message || j?.error || errBody.slice(0, 200); } catch { detail = errBody.slice(0, 200); }
+      throw new Error(`UniFi API error: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`);
     }
 
     const text = await response.text();
@@ -305,12 +308,21 @@ export class UnifiClient {
     schedule?: string[];
     scheduleEnabled?: boolean;
   }): Promise<any> {
+    const [apGroups, wlanGroups] = await Promise.all([
+      this.getApGroups(siteId),
+      this.getWlanGroups(siteId),
+    ]);
+    const defaultApGroup = apGroups.find((g: any) => g.attr_no_delete || g.device_count > 0) || apGroups[0];
+    const defaultWlanGroup = wlanGroups.find((g: any) => g.attr_no_delete || g.name === "default") || wlanGroups[0];
+
     const body: any = {
       name: opts.name,
       security: opts.security || "wpapsk",
       wpa_mode: opts.wpaMode || "wpa2",
       enabled: opts.enabled ?? true,
     };
+    if (defaultApGroup?._id) body.ap_group_ids = [defaultApGroup._id];
+    if (defaultWlanGroup?._id) body.wlangroup_id = defaultWlanGroup._id;
     if (opts.password) body.x_passphrase = opts.password;
     if (opts.networkId) body.networkconf_id = opts.networkId;
     if (opts.isGuest !== undefined) body.is_guest = opts.isGuest;
@@ -352,7 +364,24 @@ export class UnifiClient {
     return this.request(`/api/s/${siteId}/rest/wlanconf`, "POST", body);
   }
 
+  async getApGroups(siteId: string): Promise<any[]> {
+    const data = await this.request(`/api/s/${siteId}/rest/apgroup`);
+    return data?.data || [];
+  }
+
+  async getWlanGroups(siteId: string): Promise<any[]> {
+    const data = await this.request(`/api/s/${siteId}/rest/wlangroup`);
+    return data?.data || [];
+  }
+
   async createPpskWlan(siteId: string, name: string, networkId: string, ppskKeys: Array<{ password: string; vlanId: number; description: string }>, advancedOpts?: Record<string, any>): Promise<any> {
+    const [apGroups, wlanGroups] = await Promise.all([
+      this.getApGroups(siteId),
+      this.getWlanGroups(siteId),
+    ]);
+    const defaultApGroup = apGroups.find((g: any) => g.attr_no_delete || g.device_count > 0) || apGroups[0];
+    const defaultWlanGroup = wlanGroups.find((g: any) => g.attr_no_delete || g.name === "default") || wlanGroups[0];
+
     const masterPassphrase = randomBytes(16).toString('base64url');
     const body: any = {
       name,
@@ -368,6 +397,8 @@ export class UnifiClient {
         description: k.description,
       })),
     };
+    if (defaultApGroup?._id) body.ap_group_ids = [defaultApGroup._id];
+    if (defaultWlanGroup?._id) body.wlangroup_id = defaultWlanGroup._id;
     if (advancedOpts) {
       if (advancedOpts.isGuest !== undefined) body.is_guest = advancedOpts.isGuest;
       if (advancedOpts.hideSsid !== undefined) body.hide_ssid = advancedOpts.hideSsid;
@@ -386,6 +417,7 @@ export class UnifiClient {
       if (advancedOpts.dtimNa !== undefined) body.dtim_na = advancedOpts.dtimNa;
       if (advancedOpts.dtimNg !== undefined) body.dtim_ng = advancedOpts.dtimNg;
     }
+    console.log("[unifi] PPSK WLAN body:", JSON.stringify({ ...body, x_passphrase: "[redacted]", private_preshared_keys: body.private_preshared_keys?.map((k: any) => ({ ...k, key: "[redacted]" })) }));
     return this.request(`/api/s/${siteId}/rest/wlanconf`, "POST", body);
   }
 

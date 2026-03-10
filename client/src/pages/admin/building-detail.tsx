@@ -339,7 +339,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">No network assigned</SelectItem>
-                {controllerNetworks.map((net) => (
+                {controllerNetworks.filter((net) => net.vlanId && net.vlanId > 0).map((net) => (
                   <SelectItem key={net.id} value={net.id} data-testid={`option-network-${net.id}`}>
                     {net.name} (VLAN {net.vlanId})
                   </SelectItem>

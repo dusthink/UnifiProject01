@@ -651,6 +651,7 @@ function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }:
               { field: "dhcpEnabled", label: "DHCP Server", localVal: d.local.dhcpEnabled, ctrlVal: d.unifi.dhcpd_enabled, format: (v: any) => v ? "Enabled" : "Disabled" },
               { field: "dhcpStart", label: "DHCP Start", localVal: d.local.dhcpStart, ctrlVal: d.unifi.dhcpd_start },
               { field: "dhcpStop", label: "DHCP Stop", localVal: d.local.dhcpStop, ctrlVal: d.unifi.dhcpd_stop },
+              { field: "networkIsolation", label: "Network Isolation", localVal: d.local.networkIsolation, ctrlVal: d.unifi.network_isolation_enabled ?? false, format: (v: any) => v ? "Enabled" : "Disabled" },
             ];
             for (const c of checks) {
               const lv = c.localVal ?? "";
@@ -684,12 +685,7 @@ function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }:
               domainName: d.unifi.domain_name ?? "",
               igmpSnooping: d.unifi.igmp_snooping ?? false,
               internetAccessEnabled: d.unifi.internet_access_enabled ?? true,
-            } : prev);
-          }
-          if (d.local) {
-            setEditNetwork((prev: any) => prev ? {
-              ...prev,
-              networkIsolation: d.local.networkIsolation ?? false,
+              networkIsolation: d.unifi.network_isolation_enabled ?? d.local?.networkIsolation ?? false,
             } : prev);
           }
           setDetails(d);

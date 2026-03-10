@@ -50,40 +50,6 @@ export async function registerRoutes(
 ): Promise<Server> {
   setupAuth(app);
 
-  app.get("/api/debug/controller-rules/:controllerId", requireAdmin, async (req, res) => {
-    try {
-      const controller = await storage.getController(req.params.controllerId);
-      if (!controller) return res.status(404).json({ message: "Controller not found" });
-      const client = new UnifiClient(controller.url, controller.username, controller.password);
-      await client.login();
-      const siteId = "default";
-      const fwRules = await client.getFirewallRules(siteId);
-      const trafficRules = await client.getTrafficRules(siteId);
-      const zonePolicies = await client.requestRaw(`/v2/api/site/${siteId}/firewall-policies`, "GET");
-      const zonePoliciesAlt = await client.requestRaw(`/v2/api/site/${siteId}/firewall/policies`, "GET");
-      const fwZones = await client.requestRaw(`/v2/api/site/${siteId}/firewall/zones`, "GET");
-      res.json({
-        firewallRules: fwRules, trafficRules,
-        firewallRuleCount: fwRules.length, trafficRuleCount: trafficRules.length,
-        zonePolicies, zonePoliciesAlt, fwZones,
-      });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.post("/api/debug/test-traffic-rule/:controllerId", requireAdmin, async (req, res) => {
-    try {
-      const controller = await storage.getController(req.params.controllerId);
-      if (!controller) return res.status(404).json({ message: "Controller not found" });
-      const client = new UnifiClient(controller.url, controller.username, controller.password);
-      await client.login();
-      const result = await client.createTrafficRule("default", req.body);
-      res.json({ success: true, result });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
 
   await seedAdmin();
 
@@ -765,6 +731,7 @@ export async function registerRoutes(
 
       if (controller.isVerified) {
         const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+        const wantIsolation = parsed.data.networkIsolation ?? false;
         const networkResult = await client.createNetwork(
           siteId,
           parsed.data.name,
@@ -775,6 +742,7 @@ export async function registerRoutes(
             dhcpEnabled: parsed.data.dhcpEnabled ?? true,
             dhcpStart: parsed.data.dhcpStart || undefined,
             dhcpStop: parsed.data.dhcpStop || undefined,
+            networkIsolation: wantIsolation,
           }
         );
         unifiNetworkId = networkResult?.data?.[0]?._id || null;
@@ -782,21 +750,11 @@ export async function registerRoutes(
           return res.status(500).json({ message: "Failed to create network on UniFi controller. The controller did not return a network ID." });
         }
 
-        let isolationCreated = false;
-        if ((parsed.data.networkIsolation ?? true) && unifiNetworkId) {
-          try {
-            const ruleIds = await client.createNetworkIsolationRules(siteId, unifiNetworkId, parsed.data.name);
-            isolationCreated = ruleIds.length >= 2;
-          } catch (e: any) {
-            console.warn(`[networks] Could not create isolation rules for ${parsed.data.name}: ${e.message}`);
-          }
-        }
-
         const network = await storage.createNetwork({
           ...parsed.data,
           unifiNetworkId,
           isManaged: true,
-          networkIsolation: isolationCreated,
+          networkIsolation: wantIsolation,
         });
         return res.status(201).json(network);
       }
@@ -898,26 +856,17 @@ export async function registerRoutes(
       for (const net of networks) {
         try {
           let unifiNetworkId: string | null = null;
-          let bulkIsolationCreated = false;
+          const wantIsolation = networkIsolation ?? false;
           if (controller.isVerified) {
             const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
             const networkResult = await client.createNetwork(
               siteId, net.name, net.vlanId, "corporate",
-              { ipSubnet: net.ipSubnet, dhcpEnabled: net.dhcpEnabled, dhcpStart: net.dhcpStart, dhcpStop: net.dhcpStop }
+              { ipSubnet: net.ipSubnet, dhcpEnabled: net.dhcpEnabled, dhcpStart: net.dhcpStart, dhcpStop: net.dhcpStop, networkIsolation: wantIsolation }
             );
             unifiNetworkId = networkResult?.data?.[0]?._id || null;
             if (!unifiNetworkId) {
               results.push({ name: net.name, vlanId: net.vlanId, success: false, error: "Controller did not return a network ID" });
               continue;
-            }
-
-            if ((networkIsolation ?? true) && unifiNetworkId) {
-              try {
-                const ruleIds = await client.createNetworkIsolationRules(siteId, unifiNetworkId, net.name);
-                bulkIsolationCreated = ruleIds.length >= 2;
-              } catch (e: any) {
-                console.warn(`[networks] Could not create isolation rules for ${net.name}: ${e.message}`);
-              }
             }
           }
 
@@ -926,7 +875,7 @@ export async function registerRoutes(
             ipSubnet: net.ipSubnet, dhcpEnabled: net.dhcpEnabled,
             dhcpStart: net.dhcpStart, dhcpStop: net.dhcpStop,
             unifiNetworkId, siteId, isManaged: true,
-            networkIsolation: bulkIsolationCreated,
+            networkIsolation: wantIsolation,
           });
           results.push({ name: net.name, vlanId: net.vlanId, success: true });
         } catch (err: any) {
@@ -986,6 +935,7 @@ export async function registerRoutes(
               setting_preference: raw.setting_preference,
               ipv6_setting_preference: raw.ipv6_setting_preference,
               internet_access_enabled: raw.internet_access_enabled,
+              network_isolation_enabled: raw.network_isolation_enabled,
             };
           }
         }
@@ -1015,6 +965,7 @@ export async function registerRoutes(
       if (raw.dhcpd_enabled !== undefined) dbUpdates.dhcpEnabled = raw.dhcpd_enabled;
       if (raw.dhcpd_start !== undefined) dbUpdates.dhcpStart = raw.dhcpd_start;
       if (raw.dhcpd_stop !== undefined) dbUpdates.dhcpStop = raw.dhcpd_stop;
+      if (raw.network_isolation_enabled !== undefined) dbUpdates.networkIsolation = raw.network_isolation_enabled;
 
       const updated = await storage.updateNetwork(req.params.id, dbUpdates);
       if (!updated) return res.status(404).json({ message: "Network not found" });
@@ -1157,7 +1108,6 @@ export async function registerRoutes(
         }
       }
 
-      let isolationSuccess = true;
       if (existing.unifiNetworkId) {
         const controller = await storage.getController(existing.controllerId);
         if (controller?.isVerified) {
@@ -1179,32 +1129,10 @@ export async function registerRoutes(
           if (extra.domainName !== undefined) unifiUpdates.domain_name = extra.domainName;
           if (extra.igmpSnooping !== undefined) unifiUpdates.igmp_snooping = extra.igmpSnooping;
           if (extra.internetAccessEnabled !== undefined) unifiUpdates.internet_access_enabled = extra.internetAccessEnabled;
+          if (extra.networkIsolation !== undefined) unifiUpdates.network_isolation_enabled = !!extra.networkIsolation;
 
           if (Object.keys(unifiUpdates).length > 0) {
             await client.updateNetwork(existing.siteId || "default", existing.unifiNetworkId, unifiUpdates);
-          }
-
-          if (extra.networkIsolation !== undefined && extra.networkIsolation !== existing.networkIsolation) {
-            const siteId = existing.siteId || "default";
-            if (extra.networkIsolation) {
-              try {
-                const ruleIds = await client.createNetworkIsolationRules(siteId, existing.unifiNetworkId, existing.name);
-                if (ruleIds.length === 0) {
-                  isolationSuccess = false;
-                  console.warn(`[networks] Isolation rules returned 0 IDs — marking as failed`);
-                }
-              } catch (e: any) {
-                isolationSuccess = false;
-                console.warn(`[networks] Could not create isolation rules: ${e.message}`);
-              }
-            } else {
-              try {
-                await client.deleteNetworkIsolationRules(siteId, existing.unifiNetworkId);
-              } catch (e: any) {
-                isolationSuccess = false;
-                console.warn(`[networks] Could not delete isolation rules: ${e.message}`);
-              }
-            }
           }
         }
       }
@@ -1212,15 +1140,9 @@ export async function registerRoutes(
       const { networkIsolation: _ni, ...safePartialData } = partial.data as any;
       const dbUpdates: any = { ...safePartialData };
       if (req.body.networkIsolation !== undefined) {
-        if (isolationSuccess) {
-          dbUpdates.networkIsolation = req.body.networkIsolation;
-        } else {
-          return res.status(400).json({ message: "Failed to configure network isolation on the controller" });
-        }
+        dbUpdates.networkIsolation = req.body.networkIsolation;
       }
       if (Object.keys(dbUpdates).length === 0) {
-        const existing = await storage.getNetwork(req.params.id);
-        if (!existing) return res.status(404).json({ message: "Network not found" });
         return res.json(existing);
       }
       const network = await storage.updateNetwork(req.params.id, dbUpdates);
@@ -1333,13 +1255,6 @@ export async function registerRoutes(
       }
 
       if (client && network.unifiNetworkId) {
-        if (network.networkIsolation && network.unifiNetworkId) {
-          try {
-            await client.deleteNetworkIsolationRules(siteId, network.unifiNetworkId);
-          } catch (e: any) {
-            console.warn(`[networks] Could not delete isolation rules for ${network.name}: ${e.message}`);
-          }
-        }
         try {
           await client.deleteNetwork(siteId, network.unifiNetworkId);
         } catch (e: any) {

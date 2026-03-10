@@ -2520,7 +2520,13 @@ export default function ControllersPage() {
                 <Label className="text-sm mb-2 block">Select Networks ({bulkWifiSelectedNetworks.length} selected)</Label>
                 <ScrollArea className="h-[200px] border rounded-lg p-2">
                   {(() => {
-                    const nets = siteNetworks || [];
+                    const nets = (siteNetworks || []).filter((n: any) => {
+                      const name = (n.name || "").trim().toLowerCase();
+                      const purpose = (n.purpose || "").toLowerCase();
+                      if (purpose === "wan" || purpose === "internet") return false;
+                      if (/^internet$/i.test(name)) return false;
+                      return true;
+                    });
                     if (nets.length === 0) {
                       return <p className="text-xs text-muted-foreground p-2 text-center">No networks available. Create networks first.</p>;
                     }

@@ -1,4 +1,5 @@
 import https from "https";
+import { randomBytes } from "crypto";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import nodeFetch, { type RequestInit, type Response } from "node-fetch";
 
@@ -352,12 +353,15 @@ export class UnifiClient {
   }
 
   async createPpskWlan(siteId: string, name: string, networkId: string, ppskKeys: Array<{ password: string; vlanId: number; description: string }>, advancedOpts?: Record<string, any>): Promise<any> {
+    const masterPassphrase = randomBytes(16).toString('base64url');
     const body: any = {
       name,
       security: "wpapsk",
       wpa_mode: "wpa2",
+      x_passphrase: masterPassphrase,
       networkconf_id: networkId,
       enabled: true,
+      private_preshared_keys_enabled: true,
       private_preshared_keys: ppskKeys.map((k) => ({
         key: k.password,
         vlan: k.vlanId,

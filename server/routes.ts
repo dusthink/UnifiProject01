@@ -1047,7 +1047,13 @@ export async function registerRoutes(
       const siteId = reqSiteId || "default";
 
       const allNetworks = await storage.getNetworksByController(controllerId);
-      const selectedNetworks = allNetworks.filter(n => networkIds.includes(n.id) && n.siteId === siteId);
+      const selectedNetworks = allNetworks.filter(n => {
+        if (!networkIds.includes(n.id) || n.siteId !== siteId) return false;
+        const purpose = (n.purpose || "").toLowerCase();
+        const name = (n.name || "").trim().toLowerCase();
+        if (purpose === "wan" || purpose === "internet" || name === "internet") return false;
+        return true;
+      });
       if (selectedNetworks.length === 0) return res.status(400).json({ message: "No valid networks selected for this site" });
 
       const results: Array<{ networkId: string; networkName: string; success: boolean; error?: string; generatedPassword?: string; ssidName?: string; skipped?: boolean }> = [];
@@ -1083,12 +1089,14 @@ export async function registerRoutes(
           }));
           const primaryNetwork = selectedNetworks[0];
           try {
+            console.log("[bulk-wifi] Creating PPSK WLAN:", { name: cfg.name, networkId: primaryNetwork.unifiNetworkId, keysCount: ppskKeys.length });
             const result = await client.createPpskWlan(siteId, cfg.name, primaryNetwork.unifiNetworkId || "", ppskKeys, {
               isGuest: cfg.isGuest,
               hideSsid: cfg.hideSsid,
               wlanBand: cfg.wlanBand,
             });
             const wlanId = result?.data?.[0]?._id;
+            console.log("[bulk-wifi] PPSK result: wlanId=", wlanId, "meta=", result?.meta);
             if (wlanId) {
               await storage.createWifiNetwork({
                 controllerId,

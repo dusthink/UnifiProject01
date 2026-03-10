@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Building2, Home, Router, Users, Wifi, Activity, CheckCircle2, XCircle, Network } from "lucide-react";
+import { Building2, Home, Router, Users, Wifi, Activity, CheckCircle2, XCircle, Network, ChevronRight, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useLocation } from "wouter";
 import type { Community, Device } from "@shared/schema";
 
 interface ControllerSummary {
@@ -13,11 +14,19 @@ interface ControllerSummary {
   lastConnectedAt: string | null;
 }
 
-function StatCard({ icon: Icon, label, value, sublabel, color }: {
+function StatCard({ icon: Icon, label, value, sublabel, color, href, onClick }: {
   icon: any; label: string; value: string | number; sublabel?: string; color: string;
+  href?: string; onClick?: () => void;
 }) {
   return (
-    <Card className="hover-elevate">
+    <Card
+      className={`hover-elevate ${href ? "cursor-pointer transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : ""}`}
+      onClick={onClick}
+      onKeyDown={href ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); } } : undefined}
+      tabIndex={href ? 0 : undefined}
+      role={href ? "link" : undefined}
+      data-testid={`stat-card-${label.toLowerCase().replace(/\s/g, "-")}`}
+    >
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1">
@@ -29,12 +38,20 @@ function StatCard({ icon: Icon, label, value, sublabel, color }: {
             <Icon className="h-5 w-5" />
           </div>
         </div>
+        {href && (
+          <div className="mt-3 pt-3 border-t flex items-center text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <span>View all</span>
+            <ArrowRight className="h-3 w-3 ml-1" />
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 }
 
 export default function AdminDashboard() {
+  const [, navigate] = useLocation();
+
   const { data: communities, isLoading: commLoading } = useQuery<Community[]>({
     queryKey: ["/api/communities"],
   });
@@ -76,12 +93,16 @@ export default function AdminDashboard() {
           label="Communities"
           value={communities?.length || 0}
           color="bg-primary/10 text-primary"
+          href="/admin/communities"
+          onClick={() => navigate("/admin/communities")}
         />
         <StatCard
           icon={Router}
           label="Devices"
           value={devices?.length || 0}
           color="bg-chart-2/10 text-chart-2"
+          href="/admin/controllers"
+          onClick={() => navigate("/admin/controllers")}
         />
         <StatCard
           icon={Network}
@@ -89,6 +110,8 @@ export default function AdminDashboard() {
           value={controllers?.length || 0}
           sublabel={`${controllers?.filter(c => c.isVerified).length || 0} verified`}
           color="bg-chart-3/10 text-chart-3"
+          href="/admin/controllers"
+          onClick={() => navigate("/admin/controllers")}
         />
         <StatCard
           icon={Activity}
@@ -101,27 +124,49 @@ export default function AdminDashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <h3 className="font-semibold">Recent Communities</h3>
+            {communities && communities.length > 0 && (
+              <button
+                onClick={() => navigate("/admin/communities")}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                data-testid="link-view-all-communities"
+              >
+                View all <ArrowRight className="h-3 w-3" />
+              </button>
+            )}
           </CardHeader>
           <CardContent>
             {!communities?.length ? (
-              <div className="text-center py-8 text-muted-foreground">
+              <div
+                className="text-center py-8 text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => navigate("/admin/communities")}
+                data-testid="link-empty-communities"
+              >
                 <Building2 className="h-10 w-10 mx-auto mb-3 opacity-40" />
                 <p className="text-sm">No communities yet</p>
                 <p className="text-xs mt-1">Add your first community to get started</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-1">
                 {communities.slice(0, 5).map((c) => (
-                  <div key={c.id} className="flex items-center gap-3 p-2 rounded-md" data-testid={`card-community-${c.id}`}>
+                  <div
+                    key={c.id}
+                    className="flex items-center gap-3 p-2 rounded-md cursor-pointer hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => navigate(`/admin/communities/${c.id}`)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/admin/communities/${c.id}`); } }}
+                    tabIndex={0}
+                    role="link"
+                    data-testid={`card-community-${c.id}`}
+                  >
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent">
                       <Building2 className="h-4 w-4 text-accent-foreground" />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{c.name}</p>
                       <p className="text-xs text-muted-foreground truncate">{c.address || "No address"}</p>
                     </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                   </div>
                 ))}
               </div>
@@ -130,20 +175,41 @@ export default function AdminDashboard() {
         </Card>
 
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <h3 className="font-semibold">Controllers</h3>
+            {controllers && controllers.length > 0 && (
+              <button
+                onClick={() => navigate("/admin/controllers")}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                data-testid="link-view-all-controllers"
+              >
+                View all <ArrowRight className="h-3 w-3" />
+              </button>
+            )}
           </CardHeader>
           <CardContent>
             {!controllers?.length ? (
-              <div className="text-center py-8 text-muted-foreground">
+              <div
+                className="text-center py-8 text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => navigate("/admin/controllers")}
+                data-testid="link-empty-controllers"
+              >
                 <Network className="h-10 w-10 mx-auto mb-3 opacity-40" />
                 <p className="text-sm">No controllers added</p>
                 <p className="text-xs mt-1">Add a UniFi controller to get started</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-1">
                 {controllers.slice(0, 5).map((ctrl) => (
-                  <div key={ctrl.id} className="flex items-center gap-3 p-2 rounded-md" data-testid={`card-controller-dash-${ctrl.id}`}>
+                  <div
+                    key={ctrl.id}
+                    className="flex items-center gap-3 p-2 rounded-md cursor-pointer hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => navigate("/admin/controllers")}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/admin/controllers"); } }}
+                    tabIndex={0}
+                    role="link"
+                    data-testid={`card-controller-dash-${ctrl.id}`}
+                  >
                     <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${ctrl.isVerified ? "bg-green-500/10" : "bg-accent"}`}>
                       {ctrl.isVerified ? (
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
@@ -151,13 +217,14 @@ export default function AdminDashboard() {
                         <XCircle className="h-4 w-4 text-muted-foreground" />
                       )}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{ctrl.name}</p>
                       <p className="text-xs text-muted-foreground truncate">{ctrl.url}</p>
                     </div>
-                    <Badge variant={ctrl.isVerified ? "default" : "secondary"} className="shrink-0 ml-auto text-xs">
+                    <Badge variant={ctrl.isVerified ? "default" : "secondary"} className="shrink-0 text-xs">
                       {ctrl.isVerified ? "Verified" : "Unverified"}
                     </Badge>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                   </div>
                 ))}
               </div>

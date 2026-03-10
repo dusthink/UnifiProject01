@@ -659,6 +659,18 @@ export async function registerRoutes(
         for (const stale of staleDiscovered) {
           await storage.deleteNetwork(stale.id);
         }
+
+        const staleManagedIds = new Set(
+          dbNetworks
+            .filter(n => n.isManaged && n.unifiNetworkId && n.siteId === siteId && !liveByUnifiId.has(n.unifiNetworkId))
+            .map(n => n.id)
+        );
+
+        const updatedNetworks = await storage.getNetworksByControllerAndSite(controllerId, siteId);
+        return res.json(updatedNetworks.map(n => ({
+          ...n,
+          missingFromController: staleManagedIds.has(n.id),
+        })));
       }
 
       const updatedNetworks = await storage.getNetworksByControllerAndSite(controllerId, siteId);
@@ -1113,21 +1125,29 @@ export async function registerRoutes(
       const siteId = network.siteId || "default";
 
       if (client && network.unifiNetworkId) {
-        const allWlans = await client.getWlans(siteId);
-        for (const wlan of allWlans) {
-          if (wlan.private_preshared_keys_enabled && wlan.private_preshared_keys?.length > 0) {
-            const filteredKeys = wlan.private_preshared_keys.filter(
-              (k: any) => k.networkconf_id !== network.unifiNetworkId && String(k.vlan) !== String(network.vlanId)
-            );
-            if (filteredKeys.length < wlan.private_preshared_keys.length) {
-              await client.updateWlan(siteId, wlan._id, { private_preshared_keys: filteredKeys });
+        try {
+          const allWlans = await client.getWlans(siteId);
+          for (const wlan of allWlans) {
+            try {
+              if (wlan.private_preshared_keys_enabled && wlan.private_preshared_keys?.length > 0) {
+                const filteredKeys = wlan.private_preshared_keys.filter(
+                  (k: any) => k.networkconf_id !== network.unifiNetworkId && String(k.vlan) !== String(network.vlanId)
+                );
+                if (filteredKeys.length < wlan.private_preshared_keys.length) {
+                  await client.updateWlan(siteId, wlan._id, { private_preshared_keys: filteredKeys });
+                }
+              } else if (wlan.networkconf_id === network.unifiNetworkId) {
+                await client.deleteWlan(siteId, wlan._id);
+                const dbWifi = await storage.getWifiNetworksByControllerAndSite(network.controllerId, siteId);
+                const match = dbWifi.find(w => w.unifiWlanId === wlan._id);
+                if (match) await storage.deleteWifiNetwork(match.id);
+              }
+            } catch (e: any) {
+              console.warn(`[networks] Could not clean up WLAN ${wlan._id} on controller: ${e.message}`);
             }
-          } else if (wlan.networkconf_id === network.unifiNetworkId) {
-            await client.deleteWlan(siteId, wlan._id);
-            const dbWifi = await storage.getWifiNetworksByControllerAndSite(network.controllerId, siteId);
-            const match = dbWifi.find(w => w.unifiWlanId === wlan._id);
-            if (match) await storage.deleteWifiNetwork(match.id);
           }
+        } catch (e: any) {
+          console.warn(`[networks] Could not fetch WLANs for cleanup (may already be removed): ${e.message}`);
         }
       }
 
@@ -1149,7 +1169,11 @@ export async function registerRoutes(
       }
 
       if (client && network.unifiNetworkId) {
-        await client.deleteNetwork(siteId, network.unifiNetworkId);
+        try {
+          await client.deleteNetwork(siteId, network.unifiNetworkId);
+        } catch (e: any) {
+          console.warn(`[networks] Could not delete network from controller (may already be removed): ${e.message}`);
+        }
       }
 
       await storage.deleteNetwork(req.params.id);
@@ -1188,6 +1212,18 @@ export async function registerRoutes(
               isManaged: false,
             });
           }
+        }
+
+        const liveWlanIds = new Set(liveWlans.map((w: any) => w._id));
+
+        const staleManagedWifi = dbWifiNets.filter(w => w.isManaged && w.unifiWlanId && !liveWlanIds.has(w.unifiWlanId));
+        for (const stale of staleManagedWifi) {
+          await storage.deleteWifiNetwork(stale.id);
+        }
+
+        const staleDiscoveredWifi = dbWifiNets.filter(w => !w.isManaged && w.unifiWlanId && !liveWlanIds.has(w.unifiWlanId));
+        for (const stale of staleDiscoveredWifi) {
+          await storage.deleteWifiNetwork(stale.id);
         }
 
         const updatedWifiNets = await storage.getWifiNetworksByControllerAndSite(req.params.controllerId, siteId);

@@ -3161,7 +3161,16 @@ export default function ControllersPage() {
                                                     />
                                                   ) : null}
                                                 </TableCell>
-                                                <TableCell className="font-medium" data-testid={`text-network-name-${net.id}`}>{net.name}</TableCell>
+                                                <TableCell className="font-medium" data-testid={`text-network-name-${net.id}`}>
+                                                  <div className="flex items-center gap-2">
+                                                    {net.name}
+                                                    {(net as any).missingFromController && (
+                                                      <Badge variant="outline" className="text-xs text-red-600 border-red-300 dark:text-red-400 dark:border-red-700" data-testid={`badge-missing-${net.id}`}>
+                                                        <AlertTriangle className="h-3 w-3 mr-1" />Missing from Controller
+                                                      </Badge>
+                                                    )}
+                                                  </div>
+                                                </TableCell>
                                                 <TableCell>
                                                   <Badge variant="secondary" data-testid={`badge-vlan-${net.id}`}>VLAN {net.vlanId}</Badge>
                                                 </TableCell>

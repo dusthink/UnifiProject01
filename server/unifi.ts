@@ -264,15 +264,90 @@ export class UnifiClient {
     return this.request(`/api/s/${siteId}/rest/networkconf/${networkId}`, "DELETE");
   }
 
-  async createWlan(siteId: string, name: string, password: string, networkId: string, wpaMode: string = "wpa2"): Promise<any> {
-    const body = {
-      name,
-      x_passphrase: password,
-      networkconf_id: networkId,
-      security: "wpapsk",
-      wpa_mode: wpaMode,
-      enabled: true,
+  async createWlan(siteId: string, opts: {
+    name: string;
+    password?: string;
+    networkId?: string;
+    security?: string;
+    wpaMode?: string;
+    enabled?: boolean;
+    isGuest?: boolean;
+    hideSsid?: boolean;
+    bandSteering?: string;
+    wlanBand?: string;
+    macFilterEnabled?: boolean;
+    macFilterPolicy?: string;
+    macFilterList?: string[];
+    radiusEnabled?: boolean;
+    radiusIp1?: string;
+    radiusPort1?: number;
+    radiusSecret1?: string;
+    vlanEnabled?: boolean;
+    vlanId?: number;
+    uapsdEnabled?: boolean;
+    dtimMode?: string;
+    dtimNa?: number;
+    dtimNg?: number;
+    minrateNaEnabled?: boolean;
+    minrateNaDataRateKbps?: number;
+    minrateNgEnabled?: boolean;
+    minrateNgDataRateKbps?: number;
+    fastRoamingEnabled?: boolean;
+    pmfMode?: string;
+    groupRekey?: number;
+    bcastEnhanceEnabled?: boolean;
+    l2Isolation?: boolean;
+    proxyArp?: boolean;
+    rateLimit?: boolean;
+    rateLimitUpload?: number;
+    rateLimitDownload?: number;
+    schedule?: string[];
+    scheduleEnabled?: boolean;
+  }): Promise<any> {
+    const body: any = {
+      name: opts.name,
+      security: opts.security || "wpapsk",
+      wpa_mode: opts.wpaMode || "wpa2",
+      enabled: opts.enabled ?? true,
     };
+    if (opts.password) body.x_passphrase = opts.password;
+    if (opts.networkId) body.networkconf_id = opts.networkId;
+    if (opts.isGuest !== undefined) body.is_guest = opts.isGuest;
+    if (opts.hideSsid !== undefined) body.hide_ssid = opts.hideSsid;
+    if (opts.bandSteering) body.minrssi_enabled = false;
+    if (opts.wlanBand) body.wlan_band = opts.wlanBand;
+    if (opts.macFilterEnabled !== undefined) body.mac_filter_enabled = opts.macFilterEnabled;
+    if (opts.macFilterPolicy) body.mac_filter_policy = opts.macFilterPolicy;
+    if (opts.macFilterList) body.mac_filter_list = opts.macFilterList;
+    if (opts.vlanEnabled !== undefined) body.vlan_enabled = opts.vlanEnabled;
+    if (opts.vlanId !== undefined) body.vlan = String(opts.vlanId);
+    if (opts.uapsdEnabled !== undefined) body.uapsd_enabled = opts.uapsdEnabled;
+    if (opts.dtimMode) body.dtim_mode = opts.dtimMode;
+    if (opts.dtimNa !== undefined) body.dtim_na = opts.dtimNa;
+    if (opts.dtimNg !== undefined) body.dtim_ng = opts.dtimNg;
+    if (opts.minrateNaEnabled !== undefined) body.minrate_na_enabled = opts.minrateNaEnabled;
+    if (opts.minrateNaDataRateKbps !== undefined) body.minrate_na_data_rate_kbps = opts.minrateNaDataRateKbps;
+    if (opts.minrateNgEnabled !== undefined) body.minrate_ng_enabled = opts.minrateNgEnabled;
+    if (opts.minrateNgDataRateKbps !== undefined) body.minrate_ng_data_rate_kbps = opts.minrateNgDataRateKbps;
+    if (opts.fastRoamingEnabled !== undefined) body.fast_roaming_enabled = opts.fastRoamingEnabled;
+    if (opts.pmfMode) body.pmf_mode = opts.pmfMode;
+    if (opts.groupRekey !== undefined) body.group_rekey = opts.groupRekey;
+    if (opts.bcastEnhanceEnabled !== undefined) body.bcastenhance_enabled = opts.bcastEnhanceEnabled;
+    if (opts.l2Isolation !== undefined) body.l2_isolation = opts.l2Isolation;
+    if (opts.proxyArp !== undefined) body.proxy_arp = opts.proxyArp;
+    if (opts.rateLimit !== undefined) {
+      body.usergroup_id = "";
+      if (opts.rateLimitUpload !== undefined) body.rate_limit_up = opts.rateLimitUpload;
+      if (opts.rateLimitDownload !== undefined) body.rate_limit_down = opts.rateLimitDownload;
+    }
+    if (opts.scheduleEnabled !== undefined) body.schedule_enabled = opts.scheduleEnabled;
+    if (opts.schedule) body.schedule = opts.schedule;
+    if (opts.radiusEnabled) {
+      body.security = "wpaeap";
+      if (opts.radiusIp1) body.radius_ip_1 = opts.radiusIp1;
+      if (opts.radiusPort1) body.radius_port_1 = opts.radiusPort1;
+      if (opts.radiusSecret1) body.x_radius_secret_1 = opts.radiusSecret1;
+    }
     return this.request(`/api/s/${siteId}/rest/wlanconf`, "POST", body);
   }
 

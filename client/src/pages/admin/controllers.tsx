@@ -258,6 +258,19 @@ function ControllerForm({
   );
 }
 
+const wifiDefaults = {
+  name: "", password: "", wpaMode: "wpa2", securityMode: "wpapsk", networkConfId: "",
+  enabled: true, isGuest: false, hideSsid: false, wlanBand: "both",
+  macFilterEnabled: false, macFilterPolicy: "allow", macFilterList: "",
+  vlanEnabled: false, vlanId: "",
+  uapsdEnabled: false, dtimMode: "default", dtimNa: 1, dtimNg: 1,
+  minrateNaEnabled: false, minrateNaDataRateKbps: 6000, minrateNgEnabled: false, minrateNgDataRateKbps: 1000,
+  fastRoamingEnabled: false, pmfMode: "optional", groupRekey: 3600,
+  bcastEnhanceEnabled: true, l2Isolation: false, proxyArp: false,
+  rateLimitEnabled: false, rateLimitUpload: 0, rateLimitDownload: 0,
+  scheduleEnabled: false,
+};
+
 export default function ControllersPage() {
   const { toast } = useToast();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -276,12 +289,11 @@ export default function ControllersPage() {
   const [networkDhcpStop, setNetworkDhcpStop] = useState("");
 
   const [addWifiOpen, setAddWifiOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
-  const [wifiName, setWifiName] = useState("");
-  const [wifiPassword, setWifiPassword] = useState("");
-  const [wifiWpaMode, setWifiWpaMode] = useState("wpa2");
-  const [wifiSecurityMode, setWifiSecurityMode] = useState("wpapsk");
-  const [wifiNetworkConfId, setWifiNetworkConfId] = useState("");
+  const [showWifiAdvanced, setShowWifiAdvanced] = useState(false);
   const [showWifiPassword, setShowWifiPassword] = useState(false);
+  const [wifi, setWifi] = useState(wifiDefaults);
+  const wf = (field: string, value: any) => setWifi(prev => ({ ...prev, [field]: value }));
+  const resetWifi = () => { setWifi(wifiDefaults); setShowWifiAdvanced(false); setShowWifiPassword(false); };
 
   const [importDevicesOpen, setImportDevicesOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
@@ -455,11 +467,7 @@ export default function ControllersPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller"] });
       toast({ title: "WiFi network created" });
       setAddWifiOpen(null);
-      setWifiName("");
-      setWifiPassword("");
-      setWifiWpaMode("wpa2");
-      setWifiSecurityMode("wpapsk");
-      setWifiNetworkConfId("");
+      resetWifi();
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -731,8 +739,8 @@ export default function ControllersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!addWifiOpen} onOpenChange={(open) => { if (!open) { setAddWifiOpen(null); setWifiName(""); setWifiPassword(""); setWifiWpaMode("wpa2"); setWifiSecurityMode("wpapsk"); setWifiNetworkConfId(""); } }}>
-        <DialogContent>
+      <Dialog open={!!addWifiOpen} onOpenChange={(open) => { if (!open) { setAddWifiOpen(null); resetWifi(); } }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add WiFi Network</DialogTitle>
             <DialogDescription>Create a wireless SSID on the UniFi controller.</DialogDescription>
@@ -744,83 +752,62 @@ export default function ControllersPage() {
               addWifiMutation.mutate({
                 controllerId: addWifiOpen.controllerId,
                 siteId: addWifiOpen.siteId,
-                name: wifiName,
-                password: wifiPassword,
-                wpaMode: wifiWpaMode,
-                securityMode: wifiSecurityMode,
-                networkConfId: wifiNetworkConfId || undefined,
+                ...wifi,
+                networkConfId: wifi.networkConfId || undefined,
+                vlanId: wifi.vlanEnabled && wifi.vlanId ? Number(wifi.vlanId) : undefined,
+                macFilterList: wifi.macFilterEnabled && wifi.macFilterList ? wifi.macFilterList.split(/[\n,]+/).map((s: string) => s.trim()).filter(Boolean) : undefined,
               });
             }}
             className="space-y-4"
           >
             <div className="space-y-2">
               <Label>SSID Name</Label>
-              <Input
-                value={wifiName}
-                onChange={(e) => setWifiName(e.target.value)}
-                placeholder="e.g., Building-A-WiFi"
-                required
-                data-testid="input-wifi-name"
-              />
+              <Input value={wifi.name} onChange={(e) => wf("name", e.target.value)} placeholder="e.g., Building-A-WiFi" required data-testid="input-wifi-name" />
             </div>
-            <div className="space-y-2">
-              <Label>Password</Label>
-              <div className="relative">
-                <Input
-                  type={showWifiPassword ? "text" : "password"}
-                  value={wifiPassword}
-                  onChange={(e) => setWifiPassword(e.target.value)}
-                  placeholder="Min 8 characters"
-                  required
-                  minLength={8}
-                  data-testid="input-wifi-password"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                  onClick={() => setShowWifiPassword(!showWifiPassword)}
-                  data-testid="button-toggle-wifi-password"
-                >
-                  {showWifiPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Security</Label>
-                <Select value={wifiSecurityMode} onValueChange={setWifiSecurityMode}>
-                  <SelectTrigger data-testid="select-wifi-security">
-                    <SelectValue />
-                  </SelectTrigger>
+                <Label>Security Protocol</Label>
+                <Select value={wifi.securityMode} onValueChange={(v) => wf("securityMode", v)}>
+                  <SelectTrigger data-testid="select-wifi-security"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="wpapsk">WPA Personal</SelectItem>
-                    <SelectItem value="open">Open</SelectItem>
+                    <SelectItem value="open">Open (No Encryption)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>WPA Mode</Label>
-                <Select value={wifiWpaMode} onValueChange={setWifiWpaMode}>
-                  <SelectTrigger data-testid="select-wifi-wpa-mode">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="wpa2">WPA2</SelectItem>
-                    <SelectItem value="wpa3">WPA3</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {wifi.securityMode === "wpapsk" && (
+                <div className="space-y-2">
+                  <Label>WPA Mode</Label>
+                  <Select value={wifi.wpaMode} onValueChange={(v) => wf("wpaMode", v)}>
+                    <SelectTrigger data-testid="select-wifi-wpa-mode"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="wpa2">WPA2</SelectItem>
+                      <SelectItem value="wpa3">WPA3</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
+
+            {wifi.securityMode === "wpapsk" && (
+              <div className="space-y-2">
+                <Label>Password</Label>
+                <div className="relative">
+                  <Input type={showWifiPassword ? "text" : "password"} value={wifi.password} onChange={(e) => wf("password", e.target.value)} placeholder="Min 8 characters" required minLength={8} data-testid="input-wifi-password" />
+                  <Button type="button" variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setShowWifiPassword(!showWifiPassword)} data-testid="button-toggle-wifi-password">
+                    {showWifiPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
-              <Label>VLAN Network (optional)</Label>
-              <Select value={wifiNetworkConfId || "_none"} onValueChange={(v) => setWifiNetworkConfId(v === "_none" ? "" : v)}>
-                <SelectTrigger data-testid="select-wifi-network">
-                  <SelectValue placeholder="Default network" />
-                </SelectTrigger>
+              <Label>Network</Label>
+              <Select value={wifi.networkConfId || "_none"} onValueChange={(v) => wf("networkConfId", v === "_none" ? "" : v)}>
+                <SelectTrigger data-testid="select-wifi-network"><SelectValue placeholder="Default network" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="_none">Default (no VLAN)</SelectItem>
+                  <SelectItem value="_none">Default (LAN)</SelectItem>
                   {siteNetworks?.map((net: any) => (
                     <SelectItem key={net.networkConfId || net.id} value={net.networkConfId || net.id}>
                       {net.name} {net.vlanId ? `(VLAN ${net.vlanId})` : ""}
@@ -828,8 +815,240 @@ export default function ControllersPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">Assign this WiFi to a specific VLAN network.</p>
             </div>
+
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={wifi.isGuest} onChange={(e) => wf("isGuest", e.target.checked)} className="rounded" data-testid="checkbox-wifi-guest" />
+                Guest Network
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={wifi.enabled} onChange={(e) => wf("enabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-enabled" />
+                Enabled
+              </label>
+            </div>
+
+            <button type="button" className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full" onClick={() => setShowWifiAdvanced(!showWifiAdvanced)} data-testid="button-wifi-advanced-toggle">
+              <ChevronRight className={`h-4 w-4 transition-transform ${showWifiAdvanced ? "rotate-90" : ""}`} />
+              Advanced Options
+            </button>
+
+            {showWifiAdvanced && (
+              <div className="space-y-5 border rounded-lg p-4 bg-muted/30">
+
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold flex items-center gap-2"><Wifi className="h-4 w-4" /> Broadcasting</h4>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.hideSsid} onChange={(e) => wf("hideSsid", e.target.checked)} className="rounded" data-testid="checkbox-wifi-hide-ssid" />
+                    Hide SSID (don't broadcast network name)
+                  </label>
+                  <div className="space-y-2">
+                    <Label>WiFi Band</Label>
+                    <Select value={wifi.wlanBand} onValueChange={(v) => wf("wlanBand", v)}>
+                      <SelectTrigger data-testid="select-wifi-band"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="both">Both (2.4 GHz & 5 GHz)</SelectItem>
+                        <SelectItem value="2g">2.4 GHz Only</SelectItem>
+                        <SelectItem value="5g">5 GHz Only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4 space-y-3">
+                  <h4 className="text-sm font-semibold flex items-center gap-2"><Lock className="h-4 w-4" /> Security</h4>
+                  {wifi.securityMode === "wpapsk" && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>PMF (Protected Management Frames)</Label>
+                        <Select value={wifi.pmfMode} onValueChange={(v) => wf("pmfMode", v)}>
+                          <SelectTrigger data-testid="select-wifi-pmf"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="disabled">Disabled</SelectItem>
+                            <SelectItem value="optional">Optional</SelectItem>
+                            <SelectItem value="required">Required</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Group Rekey Interval (seconds)</Label>
+                        <Input type="number" value={wifi.groupRekey} onChange={(e) => wf("groupRekey", parseInt(e.target.value) || 3600)} min={0} max={86400} data-testid="input-wifi-group-rekey" />
+                      </div>
+                    </>
+                  )}
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.fastRoamingEnabled} onChange={(e) => wf("fastRoamingEnabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-fast-roaming" />
+                    BSS Transition (802.11v / Fast Roaming)
+                  </label>
+                </div>
+
+                <div className="border-t pt-4 space-y-3">
+                  <h4 className="text-sm font-semibold flex items-center gap-2"><Layers className="h-4 w-4" /> VLAN</h4>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.vlanEnabled} onChange={(e) => wf("vlanEnabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-vlan" />
+                    Use VLAN
+                  </label>
+                  {wifi.vlanEnabled && (
+                    <div className="space-y-2">
+                      <Label>VLAN ID</Label>
+                      <Input type="number" value={wifi.vlanId} onChange={(e) => wf("vlanId", e.target.value)} min={1} max={4094} placeholder="e.g., 100" data-testid="input-wifi-vlan-id" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t pt-4 space-y-3">
+                  <h4 className="text-sm font-semibold flex items-center gap-2"><Signal className="h-4 w-4" /> MAC Filter</h4>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.macFilterEnabled} onChange={(e) => wf("macFilterEnabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-mac-filter" />
+                    Enable MAC Address Filtering
+                  </label>
+                  {wifi.macFilterEnabled && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>Filter Policy</Label>
+                        <Select value={wifi.macFilterPolicy} onValueChange={(v) => wf("macFilterPolicy", v)}>
+                          <SelectTrigger data-testid="select-wifi-mac-policy"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="allow">Allow Listed (Whitelist)</SelectItem>
+                            <SelectItem value="deny">Deny Listed (Blacklist)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>MAC Addresses (one per line or comma-separated)</Label>
+                        <textarea className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" rows={3} value={wifi.macFilterList} onChange={(e) => wf("macFilterList", e.target.value)} placeholder="AA:BB:CC:DD:EE:FF" data-testid="textarea-wifi-mac-list" />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="border-t pt-4 space-y-3">
+                  <h4 className="text-sm font-semibold flex items-center gap-2"><ArrowLeftRight className="h-4 w-4" /> Rate Limiting</h4>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.rateLimitEnabled} onChange={(e) => wf("rateLimitEnabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-rate-limit" />
+                    Enable Bandwidth Limit
+                  </label>
+                  {wifi.rateLimitEnabled && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Download Limit (Kbps)</Label>
+                        <Input type="number" value={wifi.rateLimitDownload} onChange={(e) => wf("rateLimitDownload", parseInt(e.target.value) || 0)} min={0} data-testid="input-wifi-rate-down" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Upload Limit (Kbps)</Label>
+                        <Input type="number" value={wifi.rateLimitUpload} onChange={(e) => wf("rateLimitUpload", parseInt(e.target.value) || 0)} min={0} data-testid="input-wifi-rate-up" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t pt-4 space-y-3">
+                  <h4 className="text-sm font-semibold flex items-center gap-2"><Radio className="h-4 w-4" /> Performance</h4>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.uapsdEnabled} onChange={(e) => wf("uapsdEnabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-uapsd" />
+                    U-APSD (Unscheduled Automatic Power Save Delivery)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.bcastEnhanceEnabled} onChange={(e) => wf("bcastEnhanceEnabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-bcast-enhance" />
+                    Multicast Enhancement (IGMPv3)
+                  </label>
+                  <div className="space-y-2">
+                    <Label>DTIM Mode</Label>
+                    <Select value={wifi.dtimMode} onValueChange={(v) => wf("dtimMode", v)}>
+                      <SelectTrigger data-testid="select-wifi-dtim-mode"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Default</SelectItem>
+                        <SelectItem value="custom">Custom</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {wifi.dtimMode === "custom" && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>DTIM Period (2.4 GHz)</Label>
+                        <Input type="number" value={wifi.dtimNg} onChange={(e) => wf("dtimNg", parseInt(e.target.value) || 1)} min={1} max={255} data-testid="input-wifi-dtim-ng" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>DTIM Period (5 GHz)</Label>
+                        <Input type="number" value={wifi.dtimNa} onChange={(e) => wf("dtimNa", parseInt(e.target.value) || 1)} min={1} max={255} data-testid="input-wifi-dtim-na" />
+                      </div>
+                    </div>
+                  )}
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.minrateNgEnabled} onChange={(e) => wf("minrateNgEnabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-minrate-ng" />
+                    Minimum Data Rate (2.4 GHz)
+                  </label>
+                  {wifi.minrateNgEnabled && (
+                    <div className="space-y-2">
+                      <Label>Min Rate 2.4 GHz (Kbps)</Label>
+                      <Select value={String(wifi.minrateNgDataRateKbps)} onValueChange={(v) => wf("minrateNgDataRateKbps", parseInt(v))}>
+                        <SelectTrigger data-testid="select-wifi-minrate-ng"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1000">1 Mbps</SelectItem>
+                          <SelectItem value="2000">2 Mbps</SelectItem>
+                          <SelectItem value="5500">5.5 Mbps</SelectItem>
+                          <SelectItem value="6000">6 Mbps</SelectItem>
+                          <SelectItem value="9000">9 Mbps</SelectItem>
+                          <SelectItem value="11000">11 Mbps</SelectItem>
+                          <SelectItem value="12000">12 Mbps</SelectItem>
+                          <SelectItem value="18000">18 Mbps</SelectItem>
+                          <SelectItem value="24000">24 Mbps</SelectItem>
+                          <SelectItem value="36000">36 Mbps</SelectItem>
+                          <SelectItem value="48000">48 Mbps</SelectItem>
+                          <SelectItem value="54000">54 Mbps</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.minrateNaEnabled} onChange={(e) => wf("minrateNaEnabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-minrate-na" />
+                    Minimum Data Rate (5 GHz)
+                  </label>
+                  {wifi.minrateNaEnabled && (
+                    <div className="space-y-2">
+                      <Label>Min Rate 5 GHz (Kbps)</Label>
+                      <Select value={String(wifi.minrateNaDataRateKbps)} onValueChange={(v) => wf("minrateNaDataRateKbps", parseInt(v))}>
+                        <SelectTrigger data-testid="select-wifi-minrate-na"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="6000">6 Mbps</SelectItem>
+                          <SelectItem value="9000">9 Mbps</SelectItem>
+                          <SelectItem value="12000">12 Mbps</SelectItem>
+                          <SelectItem value="18000">18 Mbps</SelectItem>
+                          <SelectItem value="24000">24 Mbps</SelectItem>
+                          <SelectItem value="36000">36 Mbps</SelectItem>
+                          <SelectItem value="48000">48 Mbps</SelectItem>
+                          <SelectItem value="54000">54 Mbps</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t pt-4 space-y-3">
+                  <h4 className="text-sm font-semibold flex items-center gap-2"><Globe className="h-4 w-4" /> Client Isolation</h4>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.l2Isolation} onChange={(e) => wf("l2Isolation", e.target.checked)} className="rounded" data-testid="checkbox-wifi-l2-isolation" />
+                    Layer 2 Isolation (prevent client-to-client traffic)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.proxyArp} onChange={(e) => wf("proxyArp", e.target.checked)} className="rounded" data-testid="checkbox-wifi-proxy-arp" />
+                    Proxy ARP
+                  </label>
+                </div>
+
+                <div className="border-t pt-4 space-y-3">
+                  <h4 className="text-sm font-semibold flex items-center gap-2"><Clock className="h-4 w-4" /> Schedule</h4>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={wifi.scheduleEnabled} onChange={(e) => wf("scheduleEnabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-schedule" />
+                    Enable WiFi Schedule
+                  </label>
+                  {wifi.scheduleEnabled && (
+                    <p className="text-xs text-muted-foreground">Schedule configuration is available on the UniFi controller after creation.</p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {addWifiMutation.isError && (
               <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-3" data-testid="text-wifi-error">
                 {(addWifiMutation.error as any)?.message || "Failed to create WiFi network"}

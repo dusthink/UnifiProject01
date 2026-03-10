@@ -1452,7 +1452,7 @@ function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation, controllerId,
                     wlanBand: editWifi.wlanBand,
                     hideSsid: editWifi.hideSsid || false,
                     pmfMode: editWifi.pmfMode,
-                    apGroupMode: editWifi.apGroupMode === "specific" ? "custom" : (editWifi.apGroupMode || "all"),
+                    apGroupMode: editWifi.apGroupMode || "all",
                     apGroupIds: editWifi.apGroupMode === "custom" ? (editWifi.apGroupIds || []) : [],
                     broadcastApMacs: editWifi.apGroupMode === "specific" ? (editWifi.broadcastApMacs || []) : undefined,
                   };
@@ -2341,8 +2341,8 @@ export default function ControllersPage() {
                 <SelectTrigger data-testid="select-wifi-network"><SelectValue placeholder="Default network" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="_none">Default (LAN)</SelectItem>
-                  {siteNetworks?.map((net: any) => (
-                    <SelectItem key={net.networkConfId || net.id} value={net.networkConfId || net.id}>
+                  {siteNetworks?.filter((net: any) => net.unifiNetworkId).map((net: any) => (
+                    <SelectItem key={net.unifiNetworkId} value={net.unifiNetworkId}>
                       {net.name} {net.vlanId ? `(VLAN ${net.vlanId})` : ""}
                     </SelectItem>
                   ))}

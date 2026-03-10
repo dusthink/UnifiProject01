@@ -1702,13 +1702,16 @@ export async function registerRoutes(
           const groupId = group?.data?.[0]?._id || group?._id;
           if (groupId) {
             unifiUpdates.ap_group_ids = [groupId];
-            unifiUpdates.ap_group_mode = "custom";
           }
         }
       } else if (apGroupMode !== undefined) {
-        unifiUpdates.ap_group_mode = apGroupMode;
         if (apGroupMode === "all") {
-          unifiUpdates.ap_group_ids = [];
+          const client2 = getUnifiClient(controller!.id, controller!.url, controller!.username, controller!.password);
+          const apGroups = await client2.getApGroups(existing.siteId || "default");
+          const defaultGroup = apGroups.find((g: any) => g.attr_no_delete) || apGroups[0];
+          if (defaultGroup?._id) {
+            unifiUpdates.ap_group_ids = [defaultGroup._id];
+          }
         } else if (apGroupIds !== undefined) {
           unifiUpdates.ap_group_ids = apGroupIds;
         }

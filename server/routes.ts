@@ -939,6 +939,11 @@ export async function registerRoutes(
               broadcasting_aps: raw.broadcasting_aps,
               private_preshared_keys_enabled: raw.private_preshared_keys_enabled,
               ppsk_key_count: raw.private_preshared_keys?.length || 0,
+              ppsk_keys: (raw.private_preshared_keys || []).map((k: any) => ({
+                description: k.description || k.name || "",
+                vlan: k.vlan || "0",
+                networkconf_id: k.networkconf_id || "",
+              })),
               networkconf_id: raw.networkconf_id,
               usergroup_id: raw.usergroup_id,
               mac_filter_enabled: raw.mac_filter_enabled,
@@ -1723,6 +1728,48 @@ export async function registerRoutes(
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: `Failed to update WiFi network: ${err.message}` });
+    }
+  });
+
+  app.post("/api/wifi-networks/:id/ppsk-keys", requireAdmin, async (req, res) => {
+    try {
+      const wifi = await storage.getWifiNetwork(req.params.id);
+      if (!wifi) return res.status(404).json({ message: "WiFi network not found" });
+      if (!wifi.unifiWlanId) return res.status(400).json({ message: "No UniFi WLAN linked" });
+
+      const controller = await storage.getController(wifi.controllerId);
+      if (!controller?.isVerified) return res.status(400).json({ message: "Controller not verified" });
+
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      const siteId = wifi.siteId || "default";
+      const raw = await client.getWlanDetail(siteId, wifi.unifiWlanId);
+      if (!raw) return res.status(404).json({ message: "WLAN not found on controller" });
+
+      const existingKeys: any[] = raw.private_preshared_keys || [];
+      const { action, keys, networkconfIds } = req.body;
+
+      if (action === "add" && Array.isArray(keys)) {
+        const newKeys = keys.map((k: any) => ({
+          password: k.password,
+          vlan: String(k.vlan || "0"),
+          networkconf_id: k.networkconf_id,
+          description: k.description || "",
+        }));
+        const existingConfIds = new Set(existingKeys.map((ek: any) => ek.networkconf_id));
+        const deduped = newKeys.filter((nk: any) => !existingConfIds.has(nk.networkconf_id));
+        const merged = [...existingKeys, ...deduped];
+        await client.updateWlan(siteId, wifi.unifiWlanId, { private_preshared_keys: merged });
+        res.json({ message: `Added ${deduped.length} key(s)`, total: merged.length });
+      } else if (action === "remove" && Array.isArray(networkconfIds)) {
+        const removeSet = new Set(networkconfIds);
+        const filtered = existingKeys.filter((k: any) => !removeSet.has(k.networkconf_id));
+        await client.updateWlan(siteId, wifi.unifiWlanId, { private_preshared_keys: filtered });
+        res.json({ message: `Removed ${existingKeys.length - filtered.length} key(s)`, total: filtered.length });
+      } else {
+        res.status(400).json({ message: "Invalid action. Use 'add' or 'remove'." });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: `Failed to manage PPSK keys: ${err.message}` });
     }
   });
 

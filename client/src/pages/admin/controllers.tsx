@@ -755,6 +755,254 @@ function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }:
   );
 }
 
+function generatePpskPassword(): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const arr = new Uint8Array(12);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => chars[b % chars.length]).join("");
+}
+
+function PpskKeyManager({ editWifi, setEditWifi, details, controllerId, siteId }: any) {
+  const [expanded, setExpanded] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [addSelections, setAddSelections] = useState<Record<string, { selected: boolean; password: string }>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [localKeys, setLocalKeys] = useState<any[] | null>(null);
+  const { toast } = useToast();
+
+  const ppskKeys: any[] = localKeys || details?.unifi?.ppsk_keys || [];
+
+  const { data: siteNetworks } = useQuery<any[]>({
+    queryKey: ["/api/networks/controller", controllerId, siteId, "for-ppsk"],
+    queryFn: async () => {
+      if (!controllerId) return [];
+      const res = await fetch(`/api/networks/controller/${controllerId}?siteId=${siteId || "default"}`, { credentials: "include" });
+      return res.ok ? res.json() : [];
+    },
+    enabled: expanded && !!controllerId,
+  });
+
+  const existingConfIds = new Set(ppskKeys.map((k: any) => k.networkconf_id));
+
+  const availableNetworks = (siteNetworks || []).filter((n: any) => {
+    const name = (n.name || "").trim().toLowerCase();
+    if (["wan", "wan2", "internet"].includes(name)) return false;
+    if (n.purpose === "wan" || n.purpose === "internet" || n.purpose === "remote-user-vpn") return false;
+    if (n.vlanId === 0 || n.vlanId === null) return false;
+    if (existingConfIds.has(n.unifiNetworkId)) return false;
+    return true;
+  });
+
+  const networkNameMap: Record<string, string> = {};
+  (siteNetworks || []).forEach((n: any) => {
+    if (n.unifiNetworkId) networkNameMap[n.unifiNetworkId] = n.name;
+  });
+
+  const handleAdd = async () => {
+    const toAdd = Object.entries(addSelections)
+      .filter(([_, v]) => v.selected)
+      .map(([unifiNetId, v]) => {
+        const net = availableNetworks.find((n: any) => n.unifiNetworkId === unifiNetId);
+        return {
+          password: v.password,
+          vlan: net?.vlanId || 0,
+          networkconf_id: unifiNetId,
+          description: net?.name || "",
+        };
+      });
+    if (toAdd.length === 0) {
+      toast({ title: "Select at least one network", variant: "destructive" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await apiRequest("POST", `/api/wifi-networks/${editWifi.id}/ppsk-keys`, { action: "add", keys: toAdd });
+      toast({ title: `Added ${toAdd.length} network(s) to PPSK` });
+      setShowAdd(false);
+      setAddSelections({});
+
+      const res = await fetch(`/api/wifi-networks/${editWifi.id}/details`, { credentials: "include" });
+      const d = await res.json();
+      if (d.unifi) {
+        setLocalKeys(d.unifi.ppsk_keys || []);
+        setEditWifi((prev: any) => prev ? { ...prev, ppskKeyCount: d.unifi.ppsk_key_count || 0 } : prev);
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller"] });
+    } catch (err: any) {
+      toast({ title: "Failed to add keys", description: err.message, variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRemove = async (networkconfId: string) => {
+    setRemovingId(networkconfId);
+    try {
+      await apiRequest("POST", `/api/wifi-networks/${editWifi.id}/ppsk-keys`, { action: "remove", networkconfIds: [networkconfId] });
+      toast({ title: "Removed network from PPSK" });
+
+      const res = await fetch(`/api/wifi-networks/${editWifi.id}/details`, { credentials: "include" });
+      const d = await res.json();
+      if (d.unifi) {
+        setLocalKeys(d.unifi.ppsk_keys || []);
+        setEditWifi((prev: any) => prev ? { ...prev, ppskKeyCount: d.unifi.ppsk_key_count || 0 } : prev);
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller"] });
+    } catch (err: any) {
+      toast({ title: "Failed to remove key", description: err.message, variant: "destructive" });
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  return (
+    <div className="rounded-md border bg-blue-50 dark:bg-blue-950/30 overflow-hidden">
+      <button
+        type="button"
+        className="w-full p-3 flex items-center gap-2 hover:bg-blue-100/50 dark:hover:bg-blue-900/30 transition-colors text-left"
+        onClick={() => setExpanded(!expanded)}
+        data-testid="button-ppsk-expand"
+      >
+        <Shield className="h-4 w-4 text-blue-600 shrink-0" />
+        <span className="text-sm font-medium flex-1">PPSK (Private Pre-Shared Keys)</span>
+        <Badge variant="secondary" className="text-xs">{editWifi.ppskKeyCount || 0} keys</Badge>
+        <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`} />
+      </button>
+
+      {expanded && (
+        <div className="border-t px-3 pb-3 space-y-2">
+          {ppskKeys.length > 0 ? (
+            <div className="mt-2 space-y-1">
+              {ppskKeys.map((key: any, idx: number) => (
+                <div key={key.networkconf_id || idx} className="flex items-center justify-between px-2 py-1.5 rounded bg-white dark:bg-background/50 border text-xs" data-testid={`ppsk-key-${idx}`}>
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <Network className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="font-medium truncate">{networkNameMap[key.networkconf_id] || key.description || key.networkconf_id}</span>
+                    {key.vlan && key.vlan !== "0" && (
+                      <Badge variant="outline" className="text-[10px] shrink-0">VLAN {key.vlan}</Badge>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-destructive hover:text-destructive shrink-0"
+                    onClick={() => handleRemove(key.networkconf_id)}
+                    disabled={removingId === key.networkconf_id}
+                    data-testid={`button-ppsk-remove-${idx}`}
+                  >
+                    {removingId === key.networkconf_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground mt-2">No PPSK keys configured.</p>
+          )}
+
+          {!showAdd ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full mt-2"
+              onClick={() => {
+                setShowAdd(true);
+                const initial: Record<string, { selected: boolean; password: string }> = {};
+                availableNetworks.forEach((n: any) => {
+                  initial[n.unifiNetworkId] = { selected: false, password: generatePpskPassword() };
+                });
+                setAddSelections(initial);
+              }}
+              data-testid="button-ppsk-show-add"
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Add Networks
+            </Button>
+          ) : (
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium">Select networks to add</Label>
+                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setShowAdd(false)}>Cancel</Button>
+              </div>
+              {availableNetworks.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No available networks to add. All eligible networks are already assigned.</p>
+              ) : (
+                <>
+                  <ScrollArea className="max-h-[180px] border rounded-md">
+                    {availableNetworks.map((net: any) => {
+                      const sel = addSelections[net.unifiNetworkId];
+                      return (
+                        <div key={net.unifiNetworkId} className={`flex items-center gap-2 px-2 py-1.5 border-b last:border-b-0 ${sel?.selected ? "bg-blue-50/50 dark:bg-blue-950/20" : ""}`} data-testid={`ppsk-add-net-${net.id}`}>
+                          <Checkbox
+                            checked={sel?.selected || false}
+                            onCheckedChange={(checked) => {
+                              setAddSelections(prev => ({
+                                ...prev,
+                                [net.unifiNetworkId]: { ...prev[net.unifiNetworkId], selected: !!checked },
+                              }));
+                            }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs font-medium truncate block">{net.name}</span>
+                            <span className="text-[10px] text-muted-foreground">VLAN {net.vlanId}</span>
+                          </div>
+                          {sel?.selected && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Input
+                                className="h-6 text-xs w-28 font-mono"
+                                value={sel?.password || ""}
+                                onChange={(e) => {
+                                  setAddSelections(prev => ({
+                                    ...prev,
+                                    [net.unifiNetworkId]: { ...prev[net.unifiNetworkId], password: e.target.value },
+                                  }));
+                                }}
+                                data-testid={`input-ppsk-password-${net.id}`}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={() => {
+                                  setAddSelections(prev => ({
+                                    ...prev,
+                                    [net.unifiNetworkId]: { ...prev[net.unifiNetworkId], password: generatePpskPassword() },
+                                  }));
+                                }}
+                                title="Regenerate password"
+                                data-testid={`button-ppsk-regen-${net.id}`}
+                              >
+                                <RefreshCw className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </ScrollArea>
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={handleAdd}
+                    disabled={submitting || Object.values(addSelections).every(v => !v.selected)}
+                    data-testid="button-ppsk-add-confirm"
+                  >
+                    {submitting ? (
+                      <><RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />Adding...</>
+                    ) : (
+                      <><Plus className="h-3.5 w-3.5 mr-1" />Add {Object.values(addSelections).filter(v => v.selected).length} Network(s)</>
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation, controllerId, siteId }: any) {
   const [details, setDetails] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -900,13 +1148,13 @@ function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation, controllerId,
             </div>
 
             {isPpsk && (
-              <div className="rounded-md border bg-blue-50 dark:bg-blue-950/30 p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <Shield className="h-4 w-4 text-blue-600" />
-                  <span className="text-sm font-medium">PPSK (Private Pre-Shared Keys)</span>
-                </div>
-                <p className="text-xs text-muted-foreground">{editWifi.ppskKeyCount || 0} pre-shared keys configured. Passwords are managed per-network via PPSK keys.</p>
-              </div>
+              <PpskKeyManager
+                editWifi={editWifi}
+                setEditWifi={setEditWifi}
+                details={details}
+                controllerId={controllerId}
+                siteId={siteId}
+              />
             )}
             {!isPpsk && editWifi.securityMode !== "open" && (
               <div>

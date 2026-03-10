@@ -351,8 +351,8 @@ export class UnifiClient {
     return this.request(`/api/s/${siteId}/rest/wlanconf`, "POST", body);
   }
 
-  async createPpskWlan(siteId: string, name: string, networkId: string, ppskKeys: Array<{ password: string; vlanId: number; description: string }>): Promise<any> {
-    const body = {
+  async createPpskWlan(siteId: string, name: string, networkId: string, ppskKeys: Array<{ password: string; vlanId: number; description: string }>, advancedOpts?: Record<string, any>): Promise<any> {
+    const body: any = {
       name,
       security: "wpapsk",
       wpa_mode: "wpa2",
@@ -364,6 +364,24 @@ export class UnifiClient {
         description: k.description,
       })),
     };
+    if (advancedOpts) {
+      if (advancedOpts.isGuest !== undefined) body.is_guest = advancedOpts.isGuest;
+      if (advancedOpts.hideSsid !== undefined) body.hide_ssid = advancedOpts.hideSsid;
+      if (advancedOpts.wlanBand) body.wlan_band = advancedOpts.wlanBand;
+      if (advancedOpts.macFilterEnabled !== undefined) body.mac_filter_enabled = advancedOpts.macFilterEnabled;
+      if (advancedOpts.macFilterPolicy) body.mac_filter_policy = advancedOpts.macFilterPolicy;
+      if (advancedOpts.macFilterList) body.mac_filter_list = advancedOpts.macFilterList;
+      if (advancedOpts.uapsdEnabled !== undefined) body.uapsd_enabled = advancedOpts.uapsdEnabled;
+      if (advancedOpts.bcastEnhanceEnabled !== undefined) body.bcastenhance_enabled = advancedOpts.bcastEnhanceEnabled;
+      if (advancedOpts.l2Isolation !== undefined) body.l2_isolation = advancedOpts.l2Isolation;
+      if (advancedOpts.proxyArp !== undefined) body.proxy_arp = advancedOpts.proxyArp;
+      if (advancedOpts.fastRoamingEnabled !== undefined) body.fast_roaming_enabled = advancedOpts.fastRoamingEnabled;
+      if (advancedOpts.pmfMode) body.pmf_mode = advancedOpts.pmfMode;
+      if (advancedOpts.groupRekey !== undefined) body.group_rekey = advancedOpts.groupRekey;
+      if (advancedOpts.dtimMode) body.dtim_mode = advancedOpts.dtimMode;
+      if (advancedOpts.dtimNa !== undefined) body.dtim_na = advancedOpts.dtimNa;
+      if (advancedOpts.dtimNg !== undefined) body.dtim_ng = advancedOpts.dtimNg;
+    }
     return this.request(`/api/s/${siteId}/rest/wlanconf`, "POST", body);
   }
 

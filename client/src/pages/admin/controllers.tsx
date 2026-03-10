@@ -262,7 +262,6 @@ const wifiDefaults = {
   name: "", password: "", wpaMode: "wpa2", securityMode: "wpapsk", networkConfId: "",
   enabled: true, isGuest: false, hideSsid: false, wlanBand: "both",
   macFilterEnabled: false, macFilterPolicy: "allow", macFilterList: "",
-  vlanEnabled: false, vlanId: "",
   uapsdEnabled: false, dtimMode: "default", dtimNa: 1, dtimNg: 1,
   minrateNaEnabled: false, minrateNaDataRateKbps: 6000, minrateNgEnabled: false, minrateNgDataRateKbps: 1000,
   fastRoamingEnabled: false, pmfMode: "optional", groupRekey: 3600,
@@ -749,12 +748,15 @@ export default function ControllersPage() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!addWifiOpen) return;
+              const isPpsk = wifi.securityMode === "ppsk";
               addWifiMutation.mutate({
                 controllerId: addWifiOpen.controllerId,
                 siteId: addWifiOpen.siteId,
                 ...wifi,
+                securityMode: isPpsk ? "wpapsk" : wifi.securityMode,
+                wpaMode: isPpsk ? "wpa2" : wifi.wpaMode,
+                isPpsk,
                 networkConfId: wifi.networkConfId || undefined,
-                vlanId: wifi.vlanEnabled && wifi.vlanId ? Number(wifi.vlanId) : undefined,
                 macFilterList: wifi.macFilterEnabled && wifi.macFilterList ? wifi.macFilterList.split(/[\n,]+/).map((s: string) => s.trim()).filter(Boolean) : undefined,
               });
             }}
@@ -768,27 +770,46 @@ export default function ControllersPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Security Protocol</Label>
-                <Select value={wifi.securityMode} onValueChange={(v) => wf("securityMode", v)}>
+                <Select value={wifi.securityMode} onValueChange={(v) => {
+                  wf("securityMode", v);
+                  if (v === "ppsk") {
+                    wf("wpaMode", "wpa2");
+                    if (wifi.wlanBand === "6g") wf("wlanBand", "both");
+                  }
+                }}>
                   <SelectTrigger data-testid="select-wifi-security"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="wpapsk">WPA Personal</SelectItem>
+                    <SelectItem value="ppsk">WPA Personal (PPSK)</SelectItem>
                     <SelectItem value="open">Open (No Encryption)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              {wifi.securityMode === "wpapsk" && (
+              {(wifi.securityMode === "wpapsk" || wifi.securityMode === "ppsk") && (
                 <div className="space-y-2">
                   <Label>WPA Mode</Label>
-                  <Select value={wifi.wpaMode} onValueChange={(v) => wf("wpaMode", v)}>
-                    <SelectTrigger data-testid="select-wifi-wpa-mode"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="wpa2">WPA2</SelectItem>
-                      <SelectItem value="wpa3">WPA3</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  {wifi.securityMode === "ppsk" ? (
+                    <div className="flex items-center h-10 px-3 rounded-md border bg-muted text-sm text-muted-foreground" data-testid="text-wifi-wpa-mode-locked">
+                      WPA2 (required for PPSK)
+                    </div>
+                  ) : (
+                    <Select value={wifi.wpaMode} onValueChange={(v) => wf("wpaMode", v)}>
+                      <SelectTrigger data-testid="select-wifi-wpa-mode"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="wpa2">WPA2</SelectItem>
+                        <SelectItem value="wpa3">WPA3</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               )}
             </div>
+
+            {wifi.securityMode === "ppsk" && (
+              <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300" data-testid="text-ppsk-info">
+                PPSK networks use Private Pre-Shared Keys — each user or device gets a unique password. Individual keys are managed per-unit after the network is created.
+              </div>
+            )}
 
             {wifi.securityMode === "wpapsk" && (
               <div className="space-y-2">
@@ -850,8 +871,12 @@ export default function ControllersPage() {
                         <SelectItem value="both">Both (2.4 GHz & 5 GHz)</SelectItem>
                         <SelectItem value="2g">2.4 GHz Only</SelectItem>
                         <SelectItem value="5g">5 GHz Only</SelectItem>
+                        {wifi.securityMode !== "ppsk" && <SelectItem value="6g">6 GHz Only</SelectItem>}
                       </SelectContent>
                     </Select>
+                    {wifi.securityMode === "ppsk" && (
+                      <p className="text-xs text-muted-foreground">6 GHz is not available for PPSK networks.</p>
+                    )}
                   </div>
                 </div>
 
@@ -880,20 +905,6 @@ export default function ControllersPage() {
                     <input type="checkbox" checked={wifi.fastRoamingEnabled} onChange={(e) => wf("fastRoamingEnabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-fast-roaming" />
                     BSS Transition (802.11v / Fast Roaming)
                   </label>
-                </div>
-
-                <div className="border-t pt-4 space-y-3">
-                  <h4 className="text-sm font-semibold flex items-center gap-2"><Layers className="h-4 w-4" /> VLAN</h4>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" checked={wifi.vlanEnabled} onChange={(e) => wf("vlanEnabled", e.target.checked)} className="rounded" data-testid="checkbox-wifi-vlan" />
-                    Use VLAN
-                  </label>
-                  {wifi.vlanEnabled && (
-                    <div className="space-y-2">
-                      <Label>VLAN ID</Label>
-                      <Input type="number" value={wifi.vlanId} onChange={(e) => wf("vlanId", e.target.value)} min={1} max={4094} placeholder="e.g., 100" data-testid="input-wifi-vlan-id" />
-                    </div>
-                  )}
                 </div>
 
                 <div className="border-t pt-4 space-y-3">

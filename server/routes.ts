@@ -967,41 +967,67 @@ export async function registerRoutes(
 
       if (controller.isVerified) {
         const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
-        const d = parsed.data as any;
-        const result = await client.createWlan(siteId, {
-          name: d.name,
-          password: d.password || undefined,
-          networkId: d.networkConfId || undefined,
-          security: d.securityMode || "wpapsk",
-          wpaMode: d.wpaMode || "wpa2",
-          enabled: d.enabled ?? true,
-          isGuest: d.isGuest,
-          hideSsid: d.hideSsid,
-          wlanBand: d.wlanBand,
-          macFilterEnabled: d.macFilterEnabled,
-          macFilterPolicy: d.macFilterPolicy,
-          macFilterList: d.macFilterList,
-          vlanEnabled: d.vlanEnabled,
-          vlanId: d.vlanId ? Number(d.vlanId) : undefined,
-          uapsdEnabled: d.uapsdEnabled,
-          dtimMode: d.dtimMode,
-          dtimNa: d.dtimNa,
-          dtimNg: d.dtimNg,
-          minrateNaEnabled: d.minrateNaEnabled,
-          minrateNaDataRateKbps: d.minrateNaDataRateKbps,
-          minrateNgEnabled: d.minrateNgEnabled,
-          minrateNgDataRateKbps: d.minrateNgDataRateKbps,
-          fastRoamingEnabled: d.fastRoamingEnabled,
-          pmfMode: d.pmfMode,
-          groupRekey: d.groupRekey,
-          bcastEnhanceEnabled: d.bcastEnhanceEnabled,
-          l2Isolation: d.l2Isolation,
-          proxyArp: d.proxyArp,
-          rateLimit: d.rateLimitEnabled,
-          rateLimitUpload: d.rateLimitUpload,
-          rateLimitDownload: d.rateLimitDownload,
-          scheduleEnabled: d.scheduleEnabled,
-        });
+        const d = req.body as any;
+        let result;
+        if (d.isPpsk) {
+          result = await client.createPpskWlan(
+            siteId,
+            d.name,
+            d.networkConfId || "",
+            [],
+            {
+              isGuest: d.isGuest,
+              hideSsid: d.hideSsid,
+              wlanBand: d.wlanBand,
+              macFilterEnabled: d.macFilterEnabled,
+              macFilterPolicy: d.macFilterPolicy,
+              macFilterList: d.macFilterList,
+              uapsdEnabled: d.uapsdEnabled,
+              bcastEnhanceEnabled: d.bcastEnhanceEnabled,
+              l2Isolation: d.l2Isolation,
+              proxyArp: d.proxyArp,
+              fastRoamingEnabled: d.fastRoamingEnabled,
+              pmfMode: d.pmfMode,
+              groupRekey: d.groupRekey,
+              dtimMode: d.dtimMode,
+              dtimNa: d.dtimNa,
+              dtimNg: d.dtimNg,
+            }
+          );
+        } else {
+          result = await client.createWlan(siteId, {
+            name: d.name,
+            password: d.password || undefined,
+            networkId: d.networkConfId || undefined,
+            security: d.securityMode || "wpapsk",
+            wpaMode: d.wpaMode || "wpa2",
+            enabled: d.enabled ?? true,
+            isGuest: d.isGuest,
+            hideSsid: d.hideSsid,
+            wlanBand: d.wlanBand,
+            macFilterEnabled: d.macFilterEnabled,
+            macFilterPolicy: d.macFilterPolicy,
+            macFilterList: d.macFilterList,
+            uapsdEnabled: d.uapsdEnabled,
+            dtimMode: d.dtimMode,
+            dtimNa: d.dtimNa,
+            dtimNg: d.dtimNg,
+            minrateNaEnabled: d.minrateNaEnabled,
+            minrateNaDataRateKbps: d.minrateNaDataRateKbps,
+            minrateNgEnabled: d.minrateNgEnabled,
+            minrateNgDataRateKbps: d.minrateNgDataRateKbps,
+            fastRoamingEnabled: d.fastRoamingEnabled,
+            pmfMode: d.pmfMode,
+            groupRekey: d.groupRekey,
+            bcastEnhanceEnabled: d.bcastEnhanceEnabled,
+            l2Isolation: d.l2Isolation,
+            proxyArp: d.proxyArp,
+            rateLimit: d.rateLimitEnabled,
+            rateLimitUpload: d.rateLimitUpload,
+            rateLimitDownload: d.rateLimitDownload,
+            scheduleEnabled: d.scheduleEnabled,
+          });
+        }
         unifiWlanId = result?.data?.[0]?._id || null;
         if (!unifiWlanId) {
           return res.status(500).json({ message: "Failed to create WiFi network on UniFi controller." });

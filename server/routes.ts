@@ -1055,6 +1055,9 @@ export async function registerRoutes(
       const device = await storage.getDevice(req.params.id);
       if (!device) return res.status(404).json({ message: "Device not found" });
       let unifi: any = null;
+      let wlans: any[] = [];
+      let apGroups: any[] = [];
+      let networks: any[] = [];
       const controllerId = req.query.controllerId as string;
       const siteId = (req.query.siteId as string) || "default";
       if (device.macAddress && controllerId) {
@@ -1078,11 +1081,56 @@ export async function registerRoutes(
               kernel_version: raw.kernel_version,
               serial: raw.serial,
               led_override: raw.led_override,
+              port_table: raw.port_table || [],
+              port_overrides: raw.port_overrides || [],
             };
+          }
+          if (device.deviceType === "access_point" || device.deviceType === "hybrid") {
+            const [allWlans, allApGroups] = await Promise.all([
+              client.getWlans(siteId),
+              client.getApGroups(siteId),
+            ]);
+            const deviceMacLower = device.macAddress.toLowerCase();
+            const deviceApGroups = allApGroups.filter((g: any) =>
+              g.device_macs?.some((m: string) => m.toLowerCase() === deviceMacLower)
+            );
+            const deviceApGroupIds = new Set(deviceApGroups.map((g: any) => g._id || g.id));
+            wlans = allWlans.filter((w: any) => {
+              if (w.ap_group_ids?.length > 0) {
+                return w.ap_group_ids.some((id: string) => deviceApGroupIds.has(id));
+              }
+              const defaultGroup = allApGroups.find((g: any) => g.attr_no_delete === true);
+              if (defaultGroup) {
+                return defaultGroup.device_macs?.some((m: string) => m.toLowerCase() === deviceMacLower) ?? false;
+              }
+              return true;
+            }).map((w: any) => ({
+              _id: w._id,
+              name: w.name,
+              enabled: w.enabled,
+              security: w.security,
+              wpa_mode: w.wpa_mode,
+              is_guest: w.is_guest,
+              networkconf_id: w.networkconf_id,
+            }));
+            apGroups = deviceApGroups.map((g: any) => ({
+              _id: g._id || g.id,
+              name: g.name,
+              device_count: g.device_macs?.length || 0,
+            }));
+          }
+          if (device.deviceType === "switch" || device.deviceType === "hybrid") {
+            const allNetworks = await client.getNetworks(siteId);
+            networks = allNetworks.map((n: any) => ({
+              _id: n._id,
+              name: n.name,
+              vlan: n.vlan,
+              purpose: n.purpose,
+            }));
           }
         }
       }
-      res.json({ local: device, unifi });
+      res.json({ local: device, unifi, wlans, apGroups, networks });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

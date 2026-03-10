@@ -912,25 +912,23 @@ export default function ControllersPage() {
     const blockSize = 1 << hostBits;
     const fmtIp = (ip: number) => `${(ip >>> 24) & 0xFF}.${(ip >>> 16) & 0xFF}.${(ip >>> 8) & 0xFF}.${ip & 0xFF}`;
 
-    const oct2 = Math.floor(vlanStart / 256);
-    const oct3 = vlanStart % 256;
-    let currentBase = ((10 << 24) | (oct2 << 16) | (oct3 << 8)) >>> 0;
-
     const items: Array<{ vlanId: number; name: string; subnet: string; dhcpRange: string }> = [];
     const max = Math.min(count, 200);
     for (let i = 0; i < max; i++) {
       const vlanId = vlanStart + i;
       if (vlanId > 4094) break;
-      const gateway = (currentBase + 1) >>> 0;
-      const dhcpStart = (currentBase + 2) >>> 0;
-      const dhcpEnd = (currentBase + blockSize - 2) >>> 0;
+      const oct2 = Math.floor(vlanId / 256);
+      const oct3 = vlanId % 256;
+      const subnetBase = ((10 << 24) | (oct2 << 16) | (oct3 << 8)) >>> 0;
+      const gateway = (subnetBase + 1) >>> 0;
+      const dhcpStart = (subnetBase + 2) >>> 0;
+      const dhcpEnd = (subnetBase + blockSize - 2) >>> 0;
       items.push({
         vlanId,
         name: `${bulkPrefix}${vlanId}`,
         subnet: `${fmtIp(gateway)}/${cidrBits}`,
         dhcpRange: bulkDhcp ? `${fmtIp(dhcpStart)} - ${fmtIp(dhcpEnd)}` : "Disabled",
       });
-      currentBase = (currentBase + blockSize) >>> 0;
     }
     return items;
   })();

@@ -776,15 +776,8 @@ export async function registerRoutes(
         dhcpStart: string; dhcpStop: string; dhcpEnabled: boolean;
       }> = [];
 
-      let currentSubnetIp = 0;
-      {
-        const firstVlan = parseInt(vlanStart);
-        const oct2 = Math.floor(firstVlan / 256);
-        const oct3 = firstVlan % 256;
-        currentSubnetIp = ((10 << 24) | (oct2 << 16) | (oct3 << 8)) >>> 0;
-      }
-
       const errors: string[] = [];
+      const fmtIp = (ip: number) => `${(ip >>> 24) & 0xFF}.${(ip >>> 16) & 0xFF}.${(ip >>> 8) & 0xFF}.${ip & 0xFF}`;
 
       for (let i = 0; i < count; i++) {
         const vlanId = parseInt(vlanStart) + i;
@@ -794,31 +787,27 @@ export async function registerRoutes(
         }
         if (existingVlans.has(vlanId)) {
           errors.push(`VLAN ${vlanId} already exists, skipping.`);
-          currentSubnetIp = (currentSubnetIp + subnetBlockSize) >>> 0;
           continue;
         }
         const name = `${namePrefix}${vlanId}`;
         if (existingNames.has(name.toLowerCase())) {
           errors.push(`Name "${name}" already exists, skipping.`);
-          currentSubnetIp = (currentSubnetIp + subnetBlockSize) >>> 0;
           continue;
         }
 
-        const gatewayIp = (currentSubnetIp + 1) >>> 0;
-        const o1 = (gatewayIp >>> 24) & 0xFF;
-        const o2 = (gatewayIp >>> 16) & 0xFF;
-        const o3 = (gatewayIp >>> 8) & 0xFF;
-        const o4 = gatewayIp & 0xFF;
-        const ipSubnet = `${o1}.${o2}.${o3}.${o4}/${cidrBits}`;
+        const oct2 = Math.floor(vlanId / 256);
+        const oct3 = vlanId % 256;
+        const subnetBase = ((10 << 24) | (oct2 << 16) | (oct3 << 8)) >>> 0;
 
-        const dhcpStartIp = (currentSubnetIp + 2) >>> 0;
-        const dhcpStopIp = (currentSubnetIp + subnetBlockSize - 2) >>> 0;
-        const fmtIp = (ip: number) => `${(ip >>> 24) & 0xFF}.${(ip >>> 16) & 0xFF}.${(ip >>> 8) & 0xFF}.${ip & 0xFF}`;
+        const gatewayIp = (subnetBase + 1) >>> 0;
+        const ipSubnet = `${fmtIp(gatewayIp)}/${cidrBits}`;
+
+        const dhcpStartIp = (subnetBase + 2) >>> 0;
+        const dhcpStopIp = (subnetBase + subnetBlockSize - 2) >>> 0;
 
         const overlap = findSubnetOverlap(ipSubnet, [...existingNetworks, ...networks.map(n => ({ name: n.name, ipSubnet: n.ipSubnet }))]);
         if (overlap) {
           errors.push(`Subnet ${ipSubnet} overlaps with "${overlap.name}", skipping VLAN ${vlanId}.`);
-          currentSubnetIp = (currentSubnetIp + subnetBlockSize) >>> 0;
           continue;
         }
 
@@ -831,7 +820,6 @@ export async function registerRoutes(
 
         existingVlans.add(vlanId);
         existingNames.add(name.toLowerCase());
-        currentSubnetIp = (currentSubnetIp + subnetBlockSize) >>> 0;
       }
 
       const results: Array<{ name: string; vlanId: number; success: boolean; error?: string }> = [];

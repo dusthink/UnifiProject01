@@ -80,6 +80,7 @@ export interface IStorage {
   getWifiNetworksByControllerAndSite(controllerId: string, siteId: string): Promise<WifiNetwork[]>;
   getWifiNetwork(id: string): Promise<WifiNetwork | undefined>;
   createWifiNetwork(data: InsertWifiNetwork): Promise<WifiNetwork>;
+  updateWifiNetwork(id: string, data: Partial<InsertWifiNetwork>): Promise<WifiNetwork | undefined>;
   deleteWifiNetwork(id: string): Promise<void>;
   deleteWifiNetworksByController(controllerId: string): Promise<void>;
 
@@ -349,6 +350,11 @@ export class DatabaseStorage implements IStorage {
 
   async createWifiNetwork(data: InsertWifiNetwork): Promise<WifiNetwork> {
     const [wn] = await db.insert(wifiNetworks).values(data).returning();
+    return wn;
+  }
+
+  async updateWifiNetwork(id: string, data: Partial<InsertWifiNetwork>): Promise<WifiNetwork | undefined> {
+    const [wn] = await db.update(wifiNetworks).set(data).where(eq(wifiNetworks.id, id)).returning();
     return wn;
   }
 

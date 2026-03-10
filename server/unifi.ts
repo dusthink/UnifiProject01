@@ -264,6 +264,10 @@ export class UnifiClient {
     return this.request(`/api/s/${siteId}/rest/networkconf`, "POST", body);
   }
 
+  async updateNetwork(siteId: string, networkId: string, updates: Record<string, any>): Promise<any> {
+    return this.request(`/api/s/${siteId}/rest/networkconf/${networkId}`, "PUT", updates);
+  }
+
   async deleteNetwork(siteId: string, networkId: string): Promise<any> {
     return this.request(`/api/s/${siteId}/rest/networkconf/${networkId}`, "DELETE");
   }

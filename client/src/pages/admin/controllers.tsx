@@ -665,6 +665,49 @@ export default function ControllersPage() {
   const [bulkWifiSubmitting, setBulkWifiSubmitting] = useState(false);
   const [bulkWifiResult, setBulkWifiResult] = useState<{ total: number; succeeded: number; failed: number; results: any[] } | null>(null);
 
+  const [editNetwork, setEditNetwork] = useState<any>(null);
+  const [editWifi, setEditWifi] = useState<any>(null);
+  const [editDevice, setEditDevice] = useState<any>(null);
+
+  const editNetworkMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const res = await apiRequest("PATCH", `/api/networks/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Network updated" });
+      setEditNetwork(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/networks/controller"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to update network", description: err.message, variant: "destructive" }),
+  });
+
+  const editWifiMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const res = await apiRequest("PATCH", `/api/wifi-networks/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "WiFi network updated" });
+      setEditWifi(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to update WiFi network", description: err.message, variant: "destructive" }),
+  });
+
+  const editDeviceMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const res = await apiRequest("PATCH", `/api/devices/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Device updated" });
+      setEditDevice(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to update device", description: err.message, variant: "destructive" }),
+  });
+
   const resetBulkWifi = () => {
     setBulkWifiTab("ppsk");
     setBulkWifiPpskMode("new");
@@ -1946,7 +1989,7 @@ export default function ControllersPage() {
                                               <TableHead>Subnet</TableHead>
                                               <TableHead>DHCP</TableHead>
                                               <TableHead>Source</TableHead>
-                                              <TableHead className="w-[60px]">Actions</TableHead>
+                                              <TableHead className="w-[80px]">Actions</TableHead>
                                             </TableRow>
                                           </TableHeader>
                                           <TableBody>
@@ -1993,18 +2036,28 @@ export default function ControllersPage() {
                                                 </TableCell>
                                                 <TableCell>
                                                   {net.isManaged ? (
-                                                    <Button
-                                                      size="icon"
-                                                      variant="ghost"
-                                                      onClick={() => {
-                                                        if (confirm("Delete this network? This will also remove it from the UniFi controller.")) {
-                                                          deleteNetworkMutation.mutate(net.id);
-                                                        }
-                                                      }}
-                                                      data-testid={`button-delete-network-${net.id}`}
-                                                    >
-                                                      <Trash2 className="h-4 w-4 text-muted-foreground" />
-                                                    </Button>
+                                                    <div className="flex items-center gap-1">
+                                                      <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => setEditNetwork({ ...net })}
+                                                        data-testid={`button-edit-network-${net.id}`}
+                                                      >
+                                                        <Pencil className="h-4 w-4 text-muted-foreground" />
+                                                      </Button>
+                                                      <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => {
+                                                          if (confirm("Delete this network? This will also remove it from the UniFi controller.")) {
+                                                            deleteNetworkMutation.mutate(net.id);
+                                                          }
+                                                        }}
+                                                        data-testid={`button-delete-network-${net.id}`}
+                                                      >
+                                                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                                      </Button>
+                                                    </div>
                                                   ) : (
                                                     <span className="text-xs text-muted-foreground px-2" title="Controller-managed networks cannot be modified here">—</span>
                                                   )}
@@ -2085,7 +2138,7 @@ export default function ControllersPage() {
                                               <TableHead>Password</TableHead>
                                               <TableHead>Status</TableHead>
                                               <TableHead>Source</TableHead>
-                                              <TableHead className="w-[60px]">Actions</TableHead>
+                                              <TableHead className="w-[80px]">Actions</TableHead>
                                             </TableRow>
                                           </TableHeader>
                                           <TableBody>
@@ -2137,18 +2190,28 @@ export default function ControllersPage() {
                                                 </TableCell>
                                                 <TableCell>
                                                   {wn.isManaged ? (
-                                                    <Button
-                                                      size="icon"
-                                                      variant="ghost"
-                                                      onClick={() => {
-                                                        if (confirm(`Delete WiFi network "${wn.name}"? This will also remove it from the UniFi controller.`)) {
-                                                          deleteWifiMutation.mutate(wn.id);
-                                                        }
-                                                      }}
-                                                      data-testid={`button-delete-wifi-${wn.id}`}
-                                                    >
-                                                      <Trash2 className="h-4 w-4 text-muted-foreground" />
-                                                    </Button>
+                                                    <div className="flex items-center gap-1">
+                                                      <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => setEditWifi({ ...wn, newPassword: "" })}
+                                                        data-testid={`button-edit-wifi-${wn.id}`}
+                                                      >
+                                                        <Pencil className="h-4 w-4 text-muted-foreground" />
+                                                      </Button>
+                                                      <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => {
+                                                          if (confirm(`Delete WiFi network "${wn.name}"? This will also remove it from the UniFi controller.`)) {
+                                                            deleteWifiMutation.mutate(wn.id);
+                                                          }
+                                                        }}
+                                                        data-testid={`button-delete-wifi-${wn.id}`}
+                                                      >
+                                                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                                      </Button>
+                                                    </div>
                                                   ) : (
                                                     <Lock className="h-4 w-4 text-muted-foreground ml-2" />
                                                   )}
@@ -2217,7 +2280,7 @@ export default function ControllersPage() {
                                               <TableHead>Type</TableHead>
                                               <TableHead>Model</TableHead>
                                               <TableHead>MAC Address</TableHead>
-                                              <TableHead className="w-[60px]">Actions</TableHead>
+                                              <TableHead className="w-[80px]">Actions</TableHead>
                                             </TableRow>
                                           </TableHeader>
                                           <TableBody>
@@ -2257,18 +2320,28 @@ export default function ControllersPage() {
                                                 </TableCell>
                                                 <TableCell className="text-sm text-muted-foreground font-mono">{dev.macAddress}</TableCell>
                                                 <TableCell>
-                                                  <Button
-                                                    size="icon"
-                                                    variant="ghost"
-                                                    onClick={() => {
-                                                      if (confirm("Remove this device? It will no longer be available for unit assignments.")) {
-                                                        deleteDeviceMutation.mutate(dev.id);
-                                                      }
-                                                    }}
-                                                    data-testid={`button-delete-device-${dev.id}`}
-                                                  >
-                                                    <Trash2 className="h-4 w-4 text-muted-foreground" />
-                                                  </Button>
+                                                  <div className="flex items-center gap-1">
+                                                    <Button
+                                                      size="icon"
+                                                      variant="ghost"
+                                                      onClick={() => setEditDevice({ ...dev })}
+                                                      data-testid={`button-edit-device-${dev.id}`}
+                                                    >
+                                                      <Pencil className="h-4 w-4 text-muted-foreground" />
+                                                    </Button>
+                                                    <Button
+                                                      size="icon"
+                                                      variant="ghost"
+                                                      onClick={() => {
+                                                        if (confirm("Remove this device? It will no longer be available for unit assignments.")) {
+                                                          deleteDeviceMutation.mutate(dev.id);
+                                                        }
+                                                      }}
+                                                      data-testid={`button-delete-device-${dev.id}`}
+                                                    >
+                                                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                                    </Button>
+                                                  </div>
                                                 </TableCell>
                                               </TableRow>
                                             ))}
@@ -2744,6 +2817,162 @@ export default function ControllersPage() {
                   ) : (
                     `Delete ${bulkDeleteConfirm.ids.length} Item${bulkDeleteConfirm.ids.length !== 1 ? "s" : ""}`
                   )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editNetwork} onOpenChange={(open) => { if (!open) setEditNetwork(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Network</DialogTitle>
+          </DialogHeader>
+          {editNetwork && (
+            <div className="space-y-4">
+              <div>
+                <Label>Name</Label>
+                <Input
+                  value={editNetwork.name}
+                  onChange={(e) => setEditNetwork({ ...editNetwork, name: e.target.value })}
+                  data-testid="input-edit-network-name"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={editNetwork.dhcpEnabled}
+                  onCheckedChange={(v) => setEditNetwork({ ...editNetwork, dhcpEnabled: v })}
+                  data-testid="switch-edit-network-dhcp"
+                />
+                <Label>DHCP Enabled</Label>
+              </div>
+              {editNetwork.dhcpEnabled && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>DHCP Start</Label>
+                    <Input
+                      value={editNetwork.dhcpStart || ""}
+                      onChange={(e) => setEditNetwork({ ...editNetwork, dhcpStart: e.target.value })}
+                      data-testid="input-edit-network-dhcp-start"
+                    />
+                  </div>
+                  <div>
+                    <Label>DHCP Stop</Label>
+                    <Input
+                      value={editNetwork.dhcpStop || ""}
+                      onChange={(e) => setEditNetwork({ ...editNetwork, dhcpStop: e.target.value })}
+                      data-testid="input-edit-network-dhcp-stop"
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setEditNetwork(null)} data-testid="button-edit-network-cancel">Cancel</Button>
+                <Button
+                  onClick={() => editNetworkMutation.mutate({
+                    id: editNetwork.id,
+                    data: { name: editNetwork.name, dhcpEnabled: editNetwork.dhcpEnabled, dhcpStart: editNetwork.dhcpStart, dhcpStop: editNetwork.dhcpStop },
+                  })}
+                  disabled={editNetworkMutation.isPending}
+                  data-testid="button-edit-network-save"
+                >
+                  {editNetworkMutation.isPending ? "Saving..." : "Save"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editWifi} onOpenChange={(open) => { if (!open) setEditWifi(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit WiFi Network</DialogTitle>
+          </DialogHeader>
+          {editWifi && (
+            <div className="space-y-4">
+              <div>
+                <Label>SSID Name</Label>
+                <Input
+                  value={editWifi.name}
+                  onChange={(e) => setEditWifi({ ...editWifi, name: e.target.value })}
+                  data-testid="input-edit-wifi-name"
+                />
+              </div>
+              {editWifi.password !== null && (
+                <div>
+                  <Label>Password (leave blank to keep current)</Label>
+                  <Input
+                    type="text"
+                    value={editWifi.newPassword || ""}
+                    onChange={(e) => setEditWifi({ ...editWifi, newPassword: e.target.value })}
+                    placeholder="••••••••"
+                    data-testid="input-edit-wifi-password"
+                  />
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={editWifi.enabled}
+                  onCheckedChange={(v) => setEditWifi({ ...editWifi, enabled: v })}
+                  data-testid="switch-edit-wifi-enabled"
+                />
+                <Label>Enabled</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={editWifi.isGuest}
+                  onCheckedChange={(v) => setEditWifi({ ...editWifi, isGuest: v })}
+                  data-testid="switch-edit-wifi-guest"
+                />
+                <Label>Guest Network</Label>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setEditWifi(null)} data-testid="button-edit-wifi-cancel">Cancel</Button>
+                <Button
+                  onClick={() => {
+                    const data: any = { name: editWifi.name, enabled: editWifi.enabled, isGuest: editWifi.isGuest };
+                    if (editWifi.newPassword) data.password = editWifi.newPassword;
+                    editWifiMutation.mutate({ id: editWifi.id, data });
+                  }}
+                  disabled={editWifiMutation.isPending}
+                  data-testid="button-edit-wifi-save"
+                >
+                  {editWifiMutation.isPending ? "Saving..." : "Save"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editDevice} onOpenChange={(open) => { if (!open) setEditDevice(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Device</DialogTitle>
+          </DialogHeader>
+          {editDevice && (
+            <div className="space-y-4">
+              <div>
+                <Label>Name</Label>
+                <Input
+                  value={editDevice.name}
+                  onChange={(e) => setEditDevice({ ...editDevice, name: e.target.value })}
+                  data-testid="input-edit-device-name"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setEditDevice(null)} data-testid="button-edit-device-cancel">Cancel</Button>
+                <Button
+                  onClick={() => editDeviceMutation.mutate({
+                    id: editDevice.id,
+                    data: { name: editDevice.name },
+                  })}
+                  disabled={editDeviceMutation.isPending}
+                  data-testid="button-edit-device-save"
+                >
+                  {editDeviceMutation.isPending ? "Saving..." : "Save"}
                 </Button>
               </div>
             </div>

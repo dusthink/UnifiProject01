@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireAdmin, hashPassword, comparePasswords } from "./auth";
 import { UnifiClient, getUnifiClient, clearClientCache } from "./unifi";
-import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDeviceSchema, insertUnitDevicePortSchema, insertNetworkSchema, insertWifiNetworkSchema, loginSchema, registerSchema } from "@shared/schema";
+import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDeviceSchema, insertUnitDevicePortSchema, insertNetworkSchema, insertWifiNetworkSchema, loginSchema, registerSchema, type InsertWifiNetwork } from "@shared/schema";
 import passport from "passport";
 import { randomBytes } from "crypto";
 
@@ -431,9 +431,15 @@ export async function registerRoutes(
   });
 
   app.patch("/api/devices/:id", requireAdmin, async (req, res) => {
-    const device = await storage.updateDevice(req.params.id, req.body);
-    if (!device) return res.status(404).json({ message: "Device not found" });
-    res.json(device);
+    try {
+      const { name } = req.body;
+      if (!name || typeof name !== "string") return res.status(400).json({ message: "Name is required" });
+      const device = await storage.updateDevice(req.params.id, { name: name.trim() });
+      if (!device) return res.status(404).json({ message: "Device not found" });
+      res.json(device);
+    } catch (err: any) {
+      res.status(500).json({ message: `Failed to update device: ${err.message}` });
+    }
   });
 
   app.delete("/api/devices/:id", requireAdmin, async (req, res) => {
@@ -871,14 +877,34 @@ export async function registerRoutes(
   });
 
   app.patch("/api/networks/:id", requireAdmin, async (req, res) => {
-    const existing = await storage.getNetwork(req.params.id);
-    if (!existing) return res.status(404).json({ message: "Network not found" });
-    if (!existing.isManaged) return res.status(403).json({ message: "Cannot edit controller-managed networks. This network was discovered from the UniFi controller." });
-    const partial = insertNetworkSchema.partial().safeParse(req.body);
-    if (!partial.success) return res.status(400).json({ message: partial.error.message });
-    const network = await storage.updateNetwork(req.params.id, partial.data);
-    if (!network) return res.status(404).json({ message: "Network not found" });
-    res.json(network);
+    try {
+      const existing = await storage.getNetwork(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Network not found" });
+      if (!existing.isManaged) return res.status(403).json({ message: "Cannot edit controller-managed networks. This network was discovered from the UniFi controller." });
+      const partial = insertNetworkSchema.partial().safeParse(req.body);
+      if (!partial.success) return res.status(400).json({ message: partial.error.message });
+
+      if (existing.unifiNetworkId) {
+        const controller = await storage.getController(existing.controllerId);
+        if (controller?.isVerified) {
+          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+          const unifiUpdates: Record<string, any> = {};
+          if (partial.data.name !== undefined) unifiUpdates.name = partial.data.name;
+          if (partial.data.dhcpEnabled !== undefined) unifiUpdates.dhcpd_enabled = partial.data.dhcpEnabled;
+          if (partial.data.dhcpStart !== undefined) unifiUpdates.dhcpd_start = partial.data.dhcpStart;
+          if (partial.data.dhcpStop !== undefined) unifiUpdates.dhcpd_stop = partial.data.dhcpStop;
+          if (Object.keys(unifiUpdates).length > 0) {
+            await client.updateNetwork(existing.siteId || "default", existing.unifiNetworkId, unifiUpdates);
+          }
+        }
+      }
+
+      const network = await storage.updateNetwork(req.params.id, partial.data);
+      if (!network) return res.status(404).json({ message: "Network not found" });
+      res.json(network);
+    } catch (err: any) {
+      res.status(500).json({ message: `Failed to update network: ${err.message}` });
+    }
   });
 
   app.delete("/api/networks/:id", requireAdmin, async (req, res) => {
@@ -1321,6 +1347,37 @@ export async function registerRoutes(
       res.json({ total: results.length, succeeded, skipped, failed, results });
     } catch (err: any) {
       res.status(500).json({ message: `Bulk WiFi operation failed: ${err.message}` });
+    }
+  });
+
+  app.patch("/api/wifi-networks/:id", requireAdmin, async (req, res) => {
+    try {
+      const existing = await storage.getWifiNetwork(req.params.id);
+      if (!existing) return res.status(404).json({ message: "WiFi network not found" });
+      if (!existing.isManaged) return res.status(403).json({ message: "Cannot edit controller-managed WiFi networks." });
+
+      const { name, password, isGuest, enabled } = req.body;
+      const dbUpdates: Partial<InsertWifiNetwork> = {};
+      const unifiUpdates: Record<string, any> = {};
+
+      if (name !== undefined) { dbUpdates.name = name; unifiUpdates.name = name; }
+      if (password !== undefined && password !== "") { dbUpdates.password = password; unifiUpdates.x_passphrase = password; }
+      if (isGuest !== undefined) { dbUpdates.isGuest = isGuest; unifiUpdates.is_guest = isGuest; }
+      if (enabled !== undefined) { dbUpdates.enabled = enabled; unifiUpdates.enabled = enabled; }
+
+      if (existing.unifiWlanId && Object.keys(unifiUpdates).length > 0) {
+        const controller = await storage.getController(existing.controllerId);
+        if (controller?.isVerified) {
+          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+          await client.updateWlan(existing.siteId || "default", existing.unifiWlanId, unifiUpdates);
+        }
+      }
+
+      const updated = await storage.updateWifiNetwork(req.params.id, dbUpdates);
+      if (!updated) return res.status(404).json({ message: "WiFi network not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: `Failed to update WiFi network: ${err.message}` });
     }
   });
 

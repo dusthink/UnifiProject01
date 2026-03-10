@@ -38,6 +38,15 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - Devices (UniFi switches/APs, globally imported from controllers; typed as switch/access_point/hybrid/gateway/other with port count; iconId for product images from static.ui.com; assigned to units via UnitDevicePorts)
 - UnitDevicePorts (device-to-unit assignments for provisioning)
 
+## Controller Backups
+- **Tables:** `controller_backups` (stores backup file data as base64) and `controller_backup_settings` (enabled, schedule, consent tracking)
+- **Consent Flow:** First-time enable shows security warning dialog; user must accept before backups can be enabled. Consent tracked with `consentAcceptedAt` / `consentAcceptedBy`
+- **Schedules:** daily (7-day retention), weekly (30-day retention), monthly (180-day retention)
+- **Scheduler:** 60-second interval checks `nextBackupAt` for all enabled settings; triggers backup, stores file, updates timestamps, cleans expired backups
+- **Manual backup:** "Backup Now" button triggers immediate backup via UniFi API `cmd/backup`
+- **Download:** Backups stored as base64 in DB, served as binary download via `/api/backups/:id/download`
+- **Routes:** GET/PUT `/api/controllers/:id/backup-settings`, GET `/api/controllers/:id/backups`, POST `/api/controllers/:id/backups/trigger`, GET `/api/backups/:id/download`, DELETE `/api/backups/:id`
+
 ## Multi-Controller Architecture
 - `controllers` table stores connection details + hardware info for each UniFi controller
 - `sites` table persists discovered UniFi sites linked to controllers

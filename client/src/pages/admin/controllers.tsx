@@ -1733,6 +1733,15 @@ export default function ControllersPage() {
                     <Button
                       size="sm"
                       variant="outline"
+                      onClick={() => setBackupDialogCtrl(ctrl)}
+                      data-testid={`button-backups-controller-${ctrl.id}`}
+                    >
+                      <HardDrive className="h-4 w-4 mr-1" />
+                      Backups
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() => setEditController(ctrl)}
                       data-testid={`button-edit-controller-${ctrl.id}`}
                     >
@@ -2107,6 +2116,14 @@ export default function ControllersPage() {
             </p>
           </CardContent>
         </Card>
+      )}
+
+      {backupDialogCtrl && (
+        <BackupDialog
+          controller={backupDialogCtrl}
+          open={!!backupDialogCtrl}
+          onOpenChange={(v) => { if (!v) setBackupDialogCtrl(null); }}
+        />
       )}
     </div>
   );

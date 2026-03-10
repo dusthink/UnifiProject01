@@ -1074,27 +1074,30 @@ export async function registerRoutes(
   app.put("/api/controllers/:id/backup-settings", requireAdmin, async (req, res) => {
     try {
       const { enabled, schedule, consentAccepted } = req.body;
+      const validSchedules = ["daily", "weekly", "monthly"];
+      const validatedSchedule = validSchedules.includes(schedule) ? schedule : "daily";
+      const validatedEnabled = typeof enabled === "boolean" ? enabled : false;
+
       const controllerId = req.params.id;
       const controller = await storage.getController(controllerId);
       if (!controller) return res.status(404).json({ message: "Controller not found" });
 
-      if (enabled && !consentAccepted) {
+      if (validatedEnabled && !consentAccepted) {
         const existing = await storage.getBackupSettings(controllerId);
         if (!existing?.consentAcceptedAt) {
           return res.status(400).json({ message: "You must accept the cloud storage consent to enable backups." });
         }
       }
 
-      const retentionDays: Record<string, number> = { daily: 7, weekly: 30, monthly: 180 };
       const intervalMs: Record<string, number> = { daily: 86400000, weekly: 604800000, monthly: 2592000000 };
 
       const now = new Date();
-      const nextBackupAt = enabled ? new Date(now.getTime() + (intervalMs[schedule] || intervalMs.daily)) : null;
+      const nextBackupAt = validatedEnabled ? new Date(now.getTime() + intervalMs[validatedSchedule]) : null;
 
       const settings = await storage.upsertBackupSettings({
         controllerId,
-        enabled: enabled ?? false,
-        schedule: schedule || "daily",
+        enabled: validatedEnabled,
+        schedule: validatedSchedule,
         consentAcceptedAt: consentAccepted ? now : undefined,
         consentAcceptedBy: consentAccepted ? (req.user as any)?.id : undefined,
         nextBackupAt,

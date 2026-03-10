@@ -293,6 +293,7 @@ interface BackupSettings {
 function BackupDialog({ controller, open, onOpenChange }: { controller: Controller; open: boolean; onOpenChange: (v: boolean) => void }) {
   const { toast } = useToast();
   const [showConsent, setShowConsent] = useState(false);
+  const [consentSource, setConsentSource] = useState<"toggle" | "manual">("toggle");
   const [pendingSchedule, setPendingSchedule] = useState("daily");
   const [triggeringBackup, setTriggeringBackup] = useState(false);
 
@@ -320,6 +321,7 @@ function BackupDialog({ controller, open, onOpenChange }: { controller: Controll
 
   const handleToggleBackups = async (enabled: boolean) => {
     if (enabled && !settings?.consentAcceptedAt) {
+      setConsentSource("toggle");
       setShowConsent(true);
       return;
     }
@@ -337,14 +339,36 @@ function BackupDialog({ controller, open, onOpenChange }: { controller: Controll
 
   const handleConsentAccept = async () => {
     try {
-      await apiRequest("PUT", `/api/controllers/${controller.id}/backup-settings`, {
-        enabled: true,
-        schedule: pendingSchedule,
-        consentAccepted: true,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/controllers", controller.id, "backup-settings"] });
-      setShowConsent(false);
-      toast({ title: "Backups enabled", description: "Cloud storage consent accepted." });
+      if (consentSource === "manual") {
+        await apiRequest("PUT", `/api/controllers/${controller.id}/backup-settings`, {
+          enabled: settings?.enabled ?? false,
+          schedule: settings?.schedule || "daily",
+          consentAccepted: true,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/controllers", controller.id, "backup-settings"] });
+        setShowConsent(false);
+        toast({ title: "Consent accepted", description: "Starting backup..." });
+        setTriggeringBackup(true);
+        try {
+          await apiRequest("POST", `/api/controllers/${controller.id}/backups/trigger`, {});
+          queryClient.invalidateQueries({ queryKey: ["/api/controllers", controller.id, "backups"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/controllers", controller.id, "backup-settings"] });
+          toast({ title: "Backup completed", description: "Controller backup has been created successfully." });
+        } catch (err: any) {
+          toast({ title: "Backup failed", description: err.message, variant: "destructive" });
+        } finally {
+          setTriggeringBackup(false);
+        }
+      } else {
+        await apiRequest("PUT", `/api/controllers/${controller.id}/backup-settings`, {
+          enabled: true,
+          schedule: pendingSchedule,
+          consentAccepted: true,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/controllers", controller.id, "backup-settings"] });
+        setShowConsent(false);
+        toast({ title: "Backups enabled", description: "Cloud storage consent accepted." });
+      }
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
@@ -363,6 +387,11 @@ function BackupDialog({ controller, open, onOpenChange }: { controller: Controll
   };
 
   const handleTriggerBackup = async () => {
+    if (!settings?.consentAcceptedAt) {
+      setConsentSource("manual");
+      setShowConsent(true);
+      return;
+    }
     setTriggeringBackup(true);
     try {
       await apiRequest("POST", `/api/controllers/${controller.id}/backups/trigger`, {});
@@ -566,26 +595,28 @@ function BackupDialog({ controller, open, onOpenChange }: { controller: Controll
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
-              <Label className="text-sm font-medium">Backup Schedule</Label>
-              <Select value={pendingSchedule} onValueChange={setPendingSchedule}>
-                <SelectTrigger className="w-36" data-testid="select-consent-schedule">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="daily">Daily</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {consentSource === "toggle" && (
+              <div className="flex items-center gap-4">
+                <Label className="text-sm font-medium">Backup Schedule</Label>
+                <Select value={pendingSchedule} onValueChange={setPendingSchedule}>
+                  <SelectTrigger className="w-36" data-testid="select-consent-schedule">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setShowConsent(false)} data-testid="button-consent-cancel">
                 Cancel
               </Button>
               <Button onClick={handleConsentAccept} data-testid="button-consent-accept">
-                I Understand, Enable Backups
+                {consentSource === "manual" ? "I Understand, Create Backup" : "I Understand, Enable Backups"}
               </Button>
             </div>
           </div>

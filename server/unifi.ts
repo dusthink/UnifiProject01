@@ -52,6 +52,23 @@ export class UnifiClient {
     return this.isUnifiOs ? "/proxy/network" : "";
   }
 
+  async requestRaw(path: string, method: string = "GET", body?: any): Promise<any> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.authCookie && Date.now() < this.authCookie.expires) {
+      headers["Cookie"] = this.authCookie.value;
+    } else {
+      await this.login();
+      if (this.authCookie) headers["Cookie"] = this.authCookie.value;
+    }
+    const url = `${this.baseUrl}${this.apiPrefix()}${path}`;
+    if (this.csrfToken) headers["X-CSRF-Token"] = this.csrfToken;
+    const options: RequestInit = { method, headers };
+    if (body) options.body = JSON.stringify(body);
+    const response = await proxyFetch(url, options);
+    const text = await response.text();
+    try { return { status: response.status, body: JSON.parse(text) }; } catch { return { status: response.status, body: text }; }
+  }
+
   private async request(path: string, method: string = "GET", body?: any): Promise<any> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
 

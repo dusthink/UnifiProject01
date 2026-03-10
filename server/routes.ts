@@ -59,7 +59,13 @@ export async function registerRoutes(
       const siteId = "default";
       const fwRules = await client.getFirewallRules(siteId);
       const trafficRules = await client.getTrafficRules(siteId);
-      res.json({ firewallRules: fwRules, trafficRules, firewallRuleCount: fwRules.length, trafficRuleCount: trafficRules.length });
+      const fwRulesRaw = await client.requestRaw(`/api/s/${siteId}/rest/firewallrule`, "GET");
+      const trafficRulesRaw = await client.requestRaw(`/v2/api/site/${siteId}/trafficrules`, "GET");
+      res.json({
+        firewallRules: fwRules, trafficRules,
+        firewallRuleCount: fwRules.length, trafficRuleCount: trafficRules.length,
+        rawFwResponse: fwRulesRaw, rawTrafficResponse: trafficRulesRaw,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

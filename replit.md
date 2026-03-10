@@ -15,7 +15,7 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - **Hierarchical Navigation:** Controller → Sites → (Networks | Devices) drill-down on Controllers page; networks scoped per site, devices globally imported and available for unit assignment
 - **UniFi Integration:** Create VLANs (single or bulk), configure port profiles, manage WLANs, discover devices (all per-controller, per-site)
 - **Bulk Network Creation:** Create up to 200 VLAN networks at once with configurable VLAN range start, name prefix, subnet size (/25–/29), and DHCP toggle. Live preview table before committing. Skips duplicates gracefully.
-- **Bulk WiFi Assignment:** Create new SSIDs across multiple networks at once, or assign existing SSIDs to additional networks. Supports 4 modes: new+individual (one WLAN per network), new+PPSK (one SSID with per-network PSK keys), existing+individual (clone config), existing+PPSK (merge new PSK keys). Dialog accessible from WiFi tab via "Bulk WiFi" button.
+- **Bulk WiFi Assignment:** Two-tab dialog from WiFi tab "Bulk WiFi" button. **PPSK tab**: create new PPSK SSID or add networks to existing PPSK — auto-generates unique per-network passwords mapped to VLANs. **Create SSIDs tab**: individual SSID per network with naming conventions (use network name, prefix+VLAN, custom prefix+name) and auto-generated passwords. Results show generated credentials table with copy buttons.
 
 ## Authentication
 - **Local auth:** Email/password registration and login (scrypt-hashed passwords)

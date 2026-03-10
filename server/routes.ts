@@ -1062,15 +1062,17 @@ export async function registerRoutes(
       const selectedNetworks = allNetworks.filter(n => networkIds.includes(n.id) && n.siteId === siteId);
       if (selectedNetworks.length === 0) return res.status(400).json({ message: "No valid networks selected for this site" });
 
-      const results: Array<{ networkId: string; networkName: string; success: boolean; error?: string }> = [];
+      const results: Array<{ networkId: string; networkName: string; success: boolean; error?: string; generatedPassword?: string; ssidName?: string }> = [];
 
       if (mode === "new") {
         const cfg = ssidConfig || {};
         const isPpsk = !!cfg.isPpsk;
+        const autoPassword = !!cfg.autoPassword;
+        const namingConvention = cfg.namingConvention || null;
 
         if (isPpsk) {
           const ppskKeys = selectedNetworks.map(n => ({
-            password: cfg.password || randomBytes(8).toString('base64url'),
+            password: randomBytes(8).toString('base64url'),
             vlanId: n.vlanId,
             description: n.name,
           }));
@@ -1097,12 +1099,57 @@ export async function registerRoutes(
                 siteId,
                 isManaged: true,
               });
-              selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: true }));
+              selectedNetworks.forEach((n, i) => results.push({
+                networkId: n.id, networkName: n.name, success: true,
+                generatedPassword: ppskKeys[i].password, ssidName: cfg.name,
+              }));
             } else {
               selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: "No WLAN ID returned" }));
             }
           } catch (err: any) {
             selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: err.message }));
+          }
+        } else if (autoPassword && namingConvention) {
+          for (const net of selectedNetworks) {
+            try {
+              let ssidName = net.name;
+              if (namingConvention === "prefix") {
+                ssidName = `${cfg.prefix || "WiFi"}-${net.vlanId}`;
+              } else if (namingConvention === "custom") {
+                ssidName = `${cfg.prefix || "WiFi"}-${net.name}`;
+              }
+              const password = randomBytes(8).toString('base64url');
+              const result = await client.createWlan(siteId, {
+                name: ssidName,
+                password,
+                networkId: net.unifiNetworkId || undefined,
+                security: "wpapsk",
+                wpaMode: "wpa2",
+                enabled: true,
+              });
+              const wlanId = result?.data?.[0]?._id;
+              if (wlanId) {
+                await storage.createWifiNetwork({
+                  controllerId,
+                  name: ssidName,
+                  securityMode: "wpapsk",
+                  wpaMode: "wpa2",
+                  password,
+                  networkConfId: net.unifiNetworkId,
+                  vlanId: net.vlanId,
+                  isGuest: false,
+                  enabled: true,
+                  unifiWlanId: wlanId,
+                  siteId,
+                  isManaged: true,
+                });
+                results.push({ networkId: net.id, networkName: net.name, success: true, generatedPassword: password, ssidName });
+              } else {
+                results.push({ networkId: net.id, networkName: net.name, success: false, error: "No WLAN ID returned" });
+              }
+            } catch (err: any) {
+              results.push({ networkId: net.id, networkName: net.name, success: false, error: err.message });
+            }
           }
         } else {
           for (const net of selectedNetworks) {
@@ -1158,14 +1205,31 @@ export async function registerRoutes(
           try {
             const wlanDetail = await client.getWlanDetail(siteId, existingWifi.unifiWlanId);
             const existingKeys: any[] = wlanDetail?.private_preshared_keys || [];
-            const newKeys = selectedNetworks.map(n => ({
-              key: randomBytes(8).toString('base64url'),
-              vlan: n.vlanId,
-              description: n.name,
-            }));
-            const mergedKeys = [...existingKeys, ...newKeys];
-            await client.updateWlan(siteId, existingWifi.unifiWlanId, { private_preshared_keys: mergedKeys });
-            selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: true }));
+            const existingVlans = new Set(existingKeys.map((k: any) => String(k.vlan || k.vlanId)));
+            const newKeys: Array<{ key: string; vlan: number | null; description: string }> = [];
+            const skippedNetworks: string[] = [];
+            for (const n of selectedNetworks) {
+              if (existingVlans.has(String(n.vlanId))) {
+                skippedNetworks.push(n.id);
+                results.push({ networkId: n.id, networkName: n.name, success: false, error: "VLAN already has a PPSK key on this SSID" });
+              } else {
+                newKeys.push({ key: randomBytes(8).toString('base64url'), vlan: n.vlanId, description: n.name });
+              }
+            }
+            if (newKeys.length > 0) {
+              const mergedKeys = [...existingKeys, ...newKeys];
+              await client.updateWlan(siteId, existingWifi.unifiWlanId, { private_preshared_keys: mergedKeys });
+              let keyIdx = 0;
+              for (const n of selectedNetworks) {
+                if (!skippedNetworks.includes(n.id)) {
+                  results.push({
+                    networkId: n.id, networkName: n.name, success: true,
+                    generatedPassword: newKeys[keyIdx].key, ssidName: existingWifi.name,
+                  });
+                  keyIdx++;
+                }
+              }
+            }
           } catch (err: any) {
             selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: err.message }));
           }

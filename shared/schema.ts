@@ -37,7 +37,7 @@ export const networks = pgTable("networks", {
   unifiNetworkId: text("unifi_network_id"),
   siteId: text("site_id").default("default"),
   isManaged: boolean("is_managed").default(true),
-  networkIsolation: boolean("network_isolation").default(true),
+  networkIsolation: boolean("network_isolation").default(false),
 });
 
 export const sites = pgTable("sites", {

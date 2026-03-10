@@ -863,6 +863,7 @@ export async function registerRoutes(
       for (const net of networks) {
         try {
           let unifiNetworkId: string | null = null;
+          let bulkIsolationCreated = false;
           if (controller.isVerified) {
             const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
             const networkResult = await client.createNetwork(
@@ -877,7 +878,8 @@ export async function registerRoutes(
 
             if ((networkIsolation ?? true) && unifiNetworkId) {
               try {
-                await client.createNetworkIsolationRules(siteId, unifiNetworkId, net.name);
+                const ruleIds = await client.createNetworkIsolationRules(siteId, unifiNetworkId, net.name);
+                bulkIsolationCreated = ruleIds.length >= 2;
               } catch (e: any) {
                 console.warn(`[networks] Could not create isolation rules for ${net.name}: ${e.message}`);
               }
@@ -889,7 +891,7 @@ export async function registerRoutes(
             ipSubnet: net.ipSubnet, dhcpEnabled: net.dhcpEnabled,
             dhcpStart: net.dhcpStart, dhcpStop: net.dhcpStop,
             unifiNetworkId, siteId, isManaged: true,
-            networkIsolation: networkIsolation ?? true,
+            networkIsolation: bulkIsolationCreated,
           });
           results.push({ name: net.name, vlanId: net.vlanId, success: true });
         } catch (err: any) {
@@ -1168,9 +1170,12 @@ export async function registerRoutes(
         }
       }
 
-      const dbUpdates: any = { ...partial.data };
-      if (req.body.networkIsolation !== undefined && isolationSuccess) {
-        dbUpdates.networkIsolation = req.body.networkIsolation;
+      const { networkIsolation: _ni, ...safePartialData } = partial.data as any;
+      const dbUpdates: any = { ...safePartialData };
+      if (req.body.networkIsolation !== undefined) {
+        if (isolationSuccess) {
+          dbUpdates.networkIsolation = req.body.networkIsolation;
+        }
       }
       const network = await storage.updateNetwork(req.params.id, dbUpdates);
       if (!network) return res.status(404).json({ message: "Network not found" });

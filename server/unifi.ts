@@ -286,10 +286,24 @@ export class UnifiClient {
   }
 
   async createNetworkIsolationRules(siteId: string, networkId: string, networkName: string): Promise<string[]> {
+    console.log(`[unifi] Creating isolation rules for network ${networkName} (${networkId}) on site ${siteId}`);
     const existingRules = await this.getFirewallRules(siteId);
     const ruleIds: string[] = [];
 
-    const maxIdx = existingRules.reduce((max: number, r: any) => Math.max(max, r.rule_index || 0), 3999);
+    console.log(`[unifi] Existing firewall rules (${existingRules.length} total):`);
+    for (const r of existingRules) {
+      console.log(`  - ${r.name} | ruleset=${r.ruleset} | index=${r.rule_index} | action=${r.action}`);
+    }
+
+    const lanInRules = existingRules.filter((r: any) => r.ruleset === "LAN_IN");
+    const usedIndices = new Set(lanInRules.map((r: any) => r.rule_index));
+    let nextIdx = 2000;
+    while (usedIndices.has(nextIdx) || usedIndices.has(nextIdx + 1)) {
+      nextIdx += 2;
+      if (nextIdx >= 3998) {
+        throw new Error("No available firewall rule indices in range 2000-3999");
+      }
+    }
 
     const ruleNameFrom = `Isolate_${networkId}_from`;
     const ruleNameTo = `Isolate_${networkId}_to`;
@@ -298,13 +312,15 @@ export class UnifiClient {
     const existingTo = existingRules.find((r: any) => r.name === ruleNameTo);
 
     if (existingFrom) {
+      console.log(`[unifi] Isolation rule '${ruleNameFrom}' already exists: ${existingFrom._id}`);
       ruleIds.push(existingFrom._id);
     } else {
+      console.log(`[unifi] Creating isolation rule '${ruleNameFrom}' at index ${nextIdx}`);
       const result = await this.createFirewallRule(siteId, {
         name: ruleNameFrom,
         enabled: true,
         ruleset: "LAN_IN",
-        rule_index: maxIdx + 1,
+        rule_index: nextIdx,
         action: "drop",
         protocol: "all",
         src_firewallgroup_ids: [],
@@ -320,18 +336,22 @@ export class UnifiClient {
         ipsec: "",
         logging: false,
       });
+      console.log(`[unifi] Firewall rule create response:`, JSON.stringify(result?.meta || result?.data?.[0]?._id || 'no-id'));
       const id = result?.data?.[0]?._id || result?._id;
       if (id) ruleIds.push(id);
+      else console.warn(`[unifi] No rule ID returned for '${ruleNameFrom}'`);
     }
 
     if (existingTo) {
+      console.log(`[unifi] Isolation rule '${ruleNameTo}' already exists: ${existingTo._id}`);
       ruleIds.push(existingTo._id);
     } else {
+      console.log(`[unifi] Creating isolation rule '${ruleNameTo}' at index ${nextIdx + 1}`);
       const result = await this.createFirewallRule(siteId, {
         name: ruleNameTo,
         enabled: true,
         ruleset: "LAN_IN",
-        rule_index: maxIdx + 2,
+        rule_index: nextIdx + 1,
         action: "drop",
         protocol: "all",
         src_firewallgroup_ids: [],
@@ -347,10 +367,13 @@ export class UnifiClient {
         ipsec: "",
         logging: false,
       });
+      console.log(`[unifi] Firewall rule create response:`, JSON.stringify(result?.meta || result?.data?.[0]?._id || 'no-id'));
       const id = result?.data?.[0]?._id || result?._id;
       if (id) ruleIds.push(id);
+      else console.warn(`[unifi] No rule ID returned for '${ruleNameTo}'`);
     }
 
+    console.log(`[unifi] Isolation rules result: ${ruleIds.length} rules created/found for ${networkName}`);
     return ruleIds;
   }
 

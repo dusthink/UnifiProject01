@@ -1062,7 +1062,17 @@ export async function registerRoutes(
       const selectedNetworks = allNetworks.filter(n => networkIds.includes(n.id) && n.siteId === siteId);
       if (selectedNetworks.length === 0) return res.status(400).json({ message: "No valid networks selected for this site" });
 
-      const results: Array<{ networkId: string; networkName: string; success: boolean; error?: string; generatedPassword?: string; ssidName?: string }> = [];
+      const results: Array<{ networkId: string; networkName: string; success: boolean; error?: string; generatedPassword?: string; ssidName?: string; skipped?: boolean }> = [];
+
+      const existingWifiNetworks = await storage.getWifiNetworksByControllerAndSite(controllerId, siteId);
+      const existingWifiByVlan = new Map<number, string[]>();
+      for (const wn of existingWifiNetworks) {
+        if (wn.vlanId != null) {
+          const names = existingWifiByVlan.get(wn.vlanId) || [];
+          names.push(wn.name.toLowerCase());
+          existingWifiByVlan.set(wn.vlanId, names);
+        }
+      }
 
       if (mode === "new") {
         const cfg = ssidConfig || {};

@@ -14,7 +14,7 @@ import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router,
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Network as NetworkType } from "@shared/schema";
+import type { Network as NetworkType, Device } from "@shared/schema";
 
 interface Controller {
   id: string;
@@ -186,6 +186,7 @@ export default function ControllersPage() {
   const [networkDhcpStart, setNetworkDhcpStart] = useState("");
   const [networkDhcpStop, setNetworkDhcpStop] = useState("");
 
+  const [importDevicesOpen, setImportDevicesOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
   const [bulkCount, setBulkCount] = useState("10");
   const [bulkVlanStart, setBulkVlanStart] = useState("100");
@@ -238,14 +239,19 @@ export default function ControllersPage() {
     enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "networks",
   });
 
-  const { data: siteDevices, isLoading: devicesLoading } = useQuery<any[]>({
-    queryKey: ["/api/controllers", expandedCtrlId, "devices", expandedSiteId],
+  const { data: importedDevices, isLoading: devicesLoading } = useQuery<Device[]>({
+    queryKey: ["/api/devices"],
+    enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "devices",
+  });
+
+  const { data: liveDevices, isFetching: fetchingLiveDevices, refetch: refetchLiveDevices } = useQuery<any[]>({
+    queryKey: ["/api/controllers", expandedCtrlId, "live-devices", expandedSiteId],
     queryFn: async () => {
       if (!expandedCtrlId || !expandedSiteId) return [];
       const res = await fetch(`/api/controllers/${expandedCtrlId}/devices/${encodeURIComponent(expandedSiteId)}`, { credentials: "include" });
       return res.json();
     },
-    enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "devices",
+    enabled: false,
   });
 
   const addMutation = useMutation({
@@ -306,6 +312,29 @@ export default function ControllersPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", expandedCtrlId, "site", expandedSiteId] });
       toast({ title: "Network deleted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const importDeviceMutation = useMutation({
+    mutationFn: async (data: { name: string; macAddress: string; model: string | null; unifiDeviceId: string | null }) => {
+      const res = await apiRequest("POST", "/api/devices", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      toast({ title: "Device imported" });
+    },
+    onError: (err: any) => toast({ title: "Import failed", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteDeviceMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/devices/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      toast({ title: "Device removed" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -720,6 +749,81 @@ export default function ControllersPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={importDevicesOpen} onOpenChange={(open) => { if (!open) setImportDevicesOpen(false); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import Devices from Controller</DialogTitle>
+            <DialogDescription>Discover devices on this site and import them into the system for unit assignments.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => refetchLiveDevices()}
+                disabled={fetchingLiveDevices}
+                data-testid="button-discover-devices"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${fetchingLiveDevices ? "animate-spin" : ""}`} />
+                {fetchingLiveDevices ? "Discovering..." : "Discover Devices"}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {liveDevices ? `${liveDevices.length} device${liveDevices.length !== 1 ? "s" : ""} found` : "Click to scan for devices"}
+              </span>
+            </div>
+            {liveDevices && liveDevices.length > 0 && (
+              <ScrollArea className="h-[300px] border rounded-md">
+                <div className="space-y-1 p-2">
+                  {liveDevices.map((dev: any) => {
+                    const alreadyImported = importedDevices?.some(d => d.unifiDeviceId === dev._id || d.macAddress === dev.mac);
+                    return (
+                      <div key={dev._id || dev.mac} className="flex items-center justify-between gap-3 p-2.5 rounded-md hover:bg-muted/50" data-testid={`row-live-device-${dev._id || dev.mac}`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{dev.name || dev.hostname || dev.model || "Unknown"}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {dev.mac ? (dev.mac.includes(":") ? dev.mac : dev.mac.replace(/(.{2})(?=.)/g, "$1:")) : ""} — {dev.model || "Unknown model"}
+                              {dev.state === 1 && <span className="ml-2 text-green-600">Online</span>}
+                            </p>
+                          </div>
+                        </div>
+                        {alreadyImported ? (
+                          <Badge variant="secondary" className="shrink-0 text-xs">
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Imported
+                          </Badge>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              importDeviceMutation.mutate({
+                                name: dev.name || dev.hostname || dev.model || "Device",
+                                macAddress: dev.mac,
+                                model: dev.model || null,
+                                unifiDeviceId: dev._id || null,
+                              });
+                            }}
+                            disabled={importDeviceMutation.isPending}
+                            data-testid={`button-import-device-${dev._id || dev.mac}`}
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1" />
+                            Import
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            )}
+            {liveDevices && liveDevices.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">No devices found on this site.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {isLoading ? (
         <div className="space-y-4">
           <Skeleton className="h-24" />
@@ -882,7 +986,7 @@ export default function ControllersPage() {
                                     >
                                       <Monitor className="h-3.5 w-3.5" />
                                       Devices
-                                      {siteDevices && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{siteDevices.length}</Badge>}
+                                      {importedDevices && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{importedDevices.length}</Badge>}
                                     </button>
                                   </div>
 
@@ -978,61 +1082,71 @@ export default function ControllersPage() {
 
                                   {siteTab === "devices" && (
                                     <div className="p-3">
+                                      <div className="flex items-center justify-end mb-3">
+                                        <Button
+                                          size="sm"
+                                          onClick={() => setImportDevicesOpen(true)}
+                                          data-testid={`button-import-devices-${siteKey}`}
+                                        >
+                                          <Plus className="h-3.5 w-3.5 mr-1" />
+                                          Import from Controller
+                                        </Button>
+                                      </div>
                                       {devicesLoading ? (
                                         <div className="space-y-2">
                                           <Skeleton className="h-8 w-full" />
                                           <Skeleton className="h-8 w-full" />
                                           <Skeleton className="h-8 w-full" />
                                         </div>
-                                      ) : siteDevices && siteDevices.length > 0 ? (
+                                      ) : importedDevices && importedDevices.length > 0 ? (
                                         <Table>
                                           <TableHeader>
                                             <TableRow>
                                               <TableHead>Name</TableHead>
                                               <TableHead>Model</TableHead>
-                                              <TableHead>IP Address</TableHead>
-                                              <TableHead>MAC</TableHead>
-                                              <TableHead>Status</TableHead>
-                                              <TableHead>Version</TableHead>
+                                              <TableHead>MAC Address</TableHead>
+                                              <TableHead>UniFi ID</TableHead>
+                                              <TableHead className="w-[60px]">Actions</TableHead>
                                             </TableRow>
                                           </TableHeader>
                                           <TableBody>
-                                            {siteDevices.map((dev: any) => (
-                                              <TableRow key={dev._id || dev.mac} data-testid={`row-device-${dev._id || dev.mac}`}>
-                                                <TableCell className="font-medium" data-testid={`text-device-name-${dev._id || dev.mac}`}>
+                                            {importedDevices.map((dev) => (
+                                              <TableRow key={dev.id} data-testid={`row-device-${dev.id}`}>
+                                                <TableCell className="font-medium" data-testid={`text-device-name-${dev.id}`}>
                                                   <div className="flex items-center gap-2">
                                                     <Monitor className="h-4 w-4 text-muted-foreground" />
-                                                    {dev.name || dev.hostname || dev.model || "Unknown"}
+                                                    {dev.name}
                                                   </div>
                                                 </TableCell>
                                                 <TableCell>
-                                                  <Badge variant="outline" className="text-xs" data-testid={`badge-device-model-${dev._id || dev.mac}`}>
-                                                    {dev.model || "—"}
-                                                  </Badge>
+                                                  <Badge variant="outline" className="text-xs">{dev.model || "—"}</Badge>
                                                 </TableCell>
-                                                <TableCell className="text-sm text-muted-foreground font-mono">{dev.ip || "—"}</TableCell>
-                                                <TableCell className="text-sm text-muted-foreground font-mono">{dev.mac ? (dev.mac.includes(":") ? dev.mac : dev.mac.replace(/(.{2})(?=.)/g, "$1:")) : "—"}</TableCell>
+                                                <TableCell className="text-sm text-muted-foreground font-mono">{dev.macAddress}</TableCell>
+                                                <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">{dev.unifiDeviceId || "—"}</TableCell>
                                                 <TableCell>
-                                                  {dev.state === 1 ? (
-                                                    <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20" data-testid={`badge-device-status-${dev._id || dev.mac}`}>
-                                                      <Signal className="h-3 w-3 mr-1" />
-                                                      Online
-                                                    </Badge>
-                                                  ) : (
-                                                    <Badge variant="secondary" data-testid={`badge-device-status-${dev._id || dev.mac}`}>
-                                                      Offline
-                                                    </Badge>
-                                                  )}
+                                                  <Button
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    onClick={() => {
+                                                      if (confirm("Remove this device? It will no longer be available for unit assignments.")) {
+                                                        deleteDeviceMutation.mutate(dev.id);
+                                                      }
+                                                    }}
+                                                    data-testid={`button-delete-device-${dev.id}`}
+                                                  >
+                                                    <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                                  </Button>
                                                 </TableCell>
-                                                <TableCell className="text-xs text-muted-foreground">{dev.version || "—"}</TableCell>
                                               </TableRow>
                                             ))}
                                           </TableBody>
                                         </Table>
                                       ) : (
-                                        <p className="text-sm text-muted-foreground py-4 text-center">
-                                          No devices found on this site.
-                                        </p>
+                                        <div className="text-center py-6">
+                                          <Monitor className="h-10 w-10 text-muted-foreground/40 mx-auto mb-2" />
+                                          <p className="text-sm text-muted-foreground mb-2">No devices imported yet</p>
+                                          <p className="text-xs text-muted-foreground">Import devices from the controller to use them in unit assignments.</p>
+                                        </div>
                                       )}
                                     </div>
                                   )}

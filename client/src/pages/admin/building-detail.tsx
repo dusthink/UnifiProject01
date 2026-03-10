@@ -270,7 +270,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     setEditOpen(true);
   };
 
-  const buildingDevices = devices?.filter(d => d.buildingId === id) || [];
+  const availableDevices = devices || [];
 
   if (bldgLoading || unitsLoading) {
     return (
@@ -357,11 +357,11 @@ export default function BuildingDetailPage({ id }: { id: string }) {
           </SelectContent>
         </Select>
       </div>
-      {buildingDevices.length > 0 && (
+      {availableDevices.length > 0 && (
         <div className="space-y-2">
           <Label>Assigned Devices</Label>
           <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-3">
-            {buildingDevices.map((device) => {
+            {availableDevices.map((device) => {
               const isSelected = selectedDeviceIds.includes(device.id);
               return (
                 <label

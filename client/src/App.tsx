@@ -16,7 +16,6 @@ import AdminDashboard from "@/pages/admin/dashboard";
 import CommunitiesPage from "@/pages/admin/communities";
 import CommunityDetailPage from "@/pages/admin/community-detail";
 import BuildingDetailPage from "@/pages/admin/building-detail";
-import DevicesPage from "@/pages/admin/devices";
 import TenantsPage from "@/pages/admin/tenants";
 import ControllersPage from "@/pages/admin/controllers";
 import TenantPortal from "@/pages/tenant/portal";
@@ -47,7 +46,6 @@ function AdminRouter() {
       <Route path="/admin/buildings/:id">
         {(params) => <BuildingDetailPage id={params.id} />}
       </Route>
-      <Route path="/admin/devices" component={DevicesPage} />
       <Route path="/admin/tenants" component={TenantsPage} />
       <Route path="/admin/controllers" component={ControllersPage} />
       <Route component={NotFound} />

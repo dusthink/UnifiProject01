@@ -12,7 +12,7 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import { Building2, Home, Network, Router, LogOut, Wifi, Users, ChevronDown } from "lucide-react";
+import { Building2, Home, Network, LogOut, Wifi, Users, ChevronDown } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
@@ -24,7 +24,6 @@ const mainItems = [
 
 const controllerSubItems = [
   { title: "Controllers", url: "/admin/controllers", icon: Network },
-  { title: "Devices", url: "/admin/devices", icon: Router },
 ];
 
 export function AppSidebar() {

@@ -12,7 +12,7 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - **Admin Portal:** Community/building/unit management, device management, network/VLAN management per controller, VLAN provisioning, WiFi configuration (PPSK or individual SSID), tenant account creation
 - **Tenant Portal:** View WiFi settings, change WiFi password, view connected devices and usage statistics
 - **Multi-Controller Support:** Add/edit/test/manage multiple UniFi controllers, auto-detect UniFi OS vs classic, show hardware model/firmware/uptime, persist discovered sites
-- **Hierarchical Navigation:** Controller → Sites → (Networks | Devices) drill-down on Controllers page; networks and devices are scoped per site with tabbed interface
+- **Hierarchical Navigation:** Controller → Sites → (Networks | Devices) drill-down on Controllers page; networks scoped per site, devices globally imported and available for unit assignment
 - **UniFi Integration:** Create VLANs (single or bulk), configure port profiles, manage WLANs, discover devices (all per-controller, per-site)
 - **Bulk Network Creation:** Create up to 200 VLAN networks at once with configurable VLAN range start, name prefix, subnet size (/25–/29), and DHCP toggle. Live preview table before committing. Skips duplicates gracefully.
 
@@ -35,7 +35,7 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - InviteTokens (token, unitId, email, expiresAt, usedAt, createdBy)
 - Networks (id, controllerId, name, vlanId, ipSubnet, dhcpEnabled, dhcpStart, dhcpStop, unifiNetworkId, siteId, isManaged) — VLAN networks per controller; isManaged=true for web-created, false for controller-discovered
 - Communities (has controllerId FK, unifiSiteId) → Buildings (name, address, floors) → Units (hierarchical, tenantId FK to users, networkId FK to networks)
-- Devices (UniFi switches/APs, linked to buildings)
+- Devices (UniFi switches/APs, globally imported from controllers; assigned to units via UnitDevicePorts)
 - UnitDevicePorts (device-to-unit assignments for provisioning)
 
 ## Multi-Controller Architecture

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import {
   Sidebar,
@@ -12,28 +11,20 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import { Building2, Home, Network, LogOut, Wifi, Users, ChevronDown } from "lucide-react";
+import { Building2, Home, Network, LogOut, Wifi, Users } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
 const mainItems = [
   { title: "Dashboard", url: "/admin", icon: Home },
   { title: "Communities", url: "/admin/communities", icon: Building2 },
-  { title: "Tenants", url: "/admin/tenants", icon: Users },
-];
-
-const controllerSubItems = [
   { title: "Controllers", url: "/admin/controllers", icon: Network },
+  { title: "Tenants", url: "/admin/tenants", icon: Users },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout } = useAuth();
-
-  const controllerSectionActive = controllerSubItems.some(
-    (item) => location === item.url || location.startsWith(item.url + "/")
-  );
-  const [controllerOpen, setControllerOpen] = useState(controllerSectionActive);
 
   return (
     <Sidebar>
@@ -56,34 +47,6 @@ export function AppSidebar() {
               {mainItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild data-active={location === item.url || (item.url !== "/admin" && location.startsWith(item.url))}>
-                    <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={() => setControllerOpen(!controllerOpen)}
-                  data-active={controllerSectionActive}
-                  data-testid="link-nav-network"
-                >
-                  <Network className="h-4 w-4" />
-                  <span>Network</span>
-                  <ChevronDown className={`h-3.5 w-3.5 ml-auto transition-transform ${controllerOpen ? "" : "-rotate-90"}`} />
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              {controllerOpen && controllerSubItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild data-active={location === item.url || location.startsWith(item.url + "/")} className="pl-8">
                     <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>

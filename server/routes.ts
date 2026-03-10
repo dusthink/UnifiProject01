@@ -1385,9 +1385,26 @@ export async function registerRoutes(
       const controller = await storage.getController(controllerId);
       if (!controller?.isVerified) return res.status(400).json({ message: "Controller not found or not verified" });
       const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+
+      const wlans = await client.getWlans(siteId);
+      const usingWlans = wlans.filter((w: any) => {
+        if (w.ap_group_ids && Array.isArray(w.ap_group_ids) && w.ap_group_ids.includes(req.params.id)) return true;
+        if (w.ap_group_mode === "custom" && w.ap_group_ids?.includes(req.params.id)) return true;
+        return false;
+      });
+      if (usingWlans.length > 0) {
+        const ssidNames = usingWlans.map((w: any) => w.name).join(", ");
+        return res.status(409).json({
+          message: `Cannot delete this AP group — it is currently assigned to ${usingWlans.length} SSID${usingWlans.length > 1 ? "s" : ""}: ${ssidNames}. Remove the AP group assignment from ${usingWlans.length > 1 ? "these SSIDs" : "this SSID"} first.`,
+        });
+      }
+
       await client.deleteApGroup(siteId, req.params.id);
       res.status(204).end();
     } catch (err: any) {
+      if (err.message?.includes("invalid object") || err.message?.includes("Invalid")) {
+        return res.status(409).json({ message: "Cannot delete this AP group — it may be in use by one or more SSIDs on the controller." });
+      }
       res.status(500).json({ message: err.message });
     }
   });

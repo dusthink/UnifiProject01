@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireAdmin, hashPassword, comparePasswords } from "./auth";
 import { UnifiClient, getUnifiClient, clearClientCache } from "./unifi";
-import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDeviceSchema, insertUnitDevicePortSchema, insertNetworkSchema, loginSchema, registerSchema } from "@shared/schema";
+import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDeviceSchema, insertUnitDevicePortSchema, insertNetworkSchema, insertWifiNetworkSchema, loginSchema, registerSchema } from "@shared/schema";
 import passport from "passport";
 import { randomBytes } from "crypto";
 
@@ -911,6 +911,104 @@ export async function registerRoutes(
       res.status(204).end();
     } catch (err: any) {
       res.status(500).json({ message: `Failed to delete network: ${err.message}` });
+    }
+  });
+
+  app.get("/api/wifi-networks/controller/:controllerId", requireAdmin, async (req, res) => {
+    const siteId = (req.query.siteId as string) || "default";
+    const dbWifiNets = await storage.getWifiNetworksByControllerAndSite(req.params.controllerId, siteId);
+    const controller = await storage.getController(req.params.controllerId);
+    if (!controller) return res.status(404).json({ message: "Controller not found" });
+
+    if (controller.isVerified) {
+      try {
+        const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+        const liveWlans = await client.getWlans(siteId);
+
+        for (const wlan of liveWlans) {
+          const exists = dbWifiNets.some(w => w.unifiWlanId === wlan._id);
+          if (!exists) {
+            await storage.createWifiNetwork({
+              controllerId: controller.id,
+              name: wlan.name,
+              securityMode: wlan.security || "wpapsk",
+              wpaMode: wlan.wpa_mode || "wpa2",
+              password: wlan.x_passphrase || null,
+              networkConfId: wlan.networkconf_id || null,
+              vlanId: wlan.vlan_id || null,
+              isGuest: wlan.is_guest || false,
+              enabled: wlan.enabled ?? true,
+              unifiWlanId: wlan._id,
+              siteId,
+              isManaged: false,
+            });
+          }
+        }
+
+        const updatedWifiNets = await storage.getWifiNetworksByControllerAndSite(req.params.controllerId, siteId);
+        return res.json(updatedWifiNets);
+      } catch (err: any) {
+        return res.json(dbWifiNets);
+      }
+    }
+    res.json(dbWifiNets);
+  });
+
+  app.post("/api/wifi-networks", requireAdmin, async (req, res) => {
+    try {
+      const parsed = insertWifiNetworkSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+      const controller = await storage.getController(parsed.data.controllerId);
+      if (!controller) return res.status(400).json({ message: "Controller not found" });
+
+      const siteId = parsed.data.siteId || "default";
+      let unifiWlanId: string | null = null;
+
+      if (controller.isVerified) {
+        const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+        const result = await client.createWlan(
+          siteId,
+          parsed.data.name,
+          parsed.data.password || "",
+          parsed.data.networkConfId || undefined,
+          parsed.data.wpaMode || "wpa2"
+        );
+        unifiWlanId = result?.data?.[0]?._id || null;
+        if (!unifiWlanId) {
+          return res.status(500).json({ message: "Failed to create WiFi network on UniFi controller." });
+        }
+      }
+
+      const wifiNet = await storage.createWifiNetwork({
+        ...parsed.data,
+        unifiWlanId,
+        isManaged: true,
+      });
+      res.status(201).json(wifiNet);
+    } catch (err: any) {
+      res.status(500).json({ message: `Failed to create WiFi network: ${err.message}` });
+    }
+  });
+
+  app.delete("/api/wifi-networks/:id", requireAdmin, async (req, res) => {
+    try {
+      const wifiNet = await storage.getWifiNetwork(req.params.id);
+      if (!wifiNet) return res.status(404).json({ message: "WiFi network not found" });
+      if (!wifiNet.isManaged) return res.status(403).json({ message: "Cannot delete controller-managed WiFi networks. This SSID exists on the UniFi controller and was not created from this interface." });
+
+      if (wifiNet.unifiWlanId) {
+        const controller = await storage.getController(wifiNet.controllerId);
+        if (controller?.isVerified) {
+          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+          await client.deleteWlan(wifiNet.siteId || "default", wifiNet.unifiWlanId);
+        }
+      }
+
+      await storage.deleteWifiNetwork(req.params.id);
+      res.status(204).end();
+    } catch (err: any) {
+      res.status(500).json({ message: `Failed to delete WiFi network: ${err.message}` });
     }
   });
 

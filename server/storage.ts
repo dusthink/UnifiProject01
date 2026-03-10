@@ -1,7 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers, sites, networks,
+  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers, sites, networks, wifiNetworks,
   type User, type InsertUser,
   type Community, type InsertCommunity,
   type Building, type InsertBuilding,
@@ -11,6 +11,7 @@ import {
   type InviteToken, type InsertInviteToken,
   type Controller, type InsertController,
   type Network, type InsertNetwork,
+  type WifiNetwork, type InsertWifiNetwork,
   type Site, type InsertSite,
 } from "@shared/schema";
 
@@ -73,6 +74,12 @@ export interface IStorage {
   updateNetwork(id: string, data: Partial<InsertNetwork>): Promise<Network | undefined>;
   deleteNetwork(id: string): Promise<void>;
   deleteNetworksByController(controllerId: string): Promise<void>;
+
+  getWifiNetworksByControllerAndSite(controllerId: string, siteId: string): Promise<WifiNetwork[]>;
+  getWifiNetwork(id: string): Promise<WifiNetwork | undefined>;
+  createWifiNetwork(data: InsertWifiNetwork): Promise<WifiNetwork>;
+  deleteWifiNetwork(id: string): Promise<void>;
+  deleteWifiNetworksByController(controllerId: string): Promise<void>;
 
   getSitesByController(controllerId: string): Promise<Site[]>;
   getSite(id: string): Promise<Site | undefined>;
@@ -314,6 +321,30 @@ export class DatabaseStorage implements IStorage {
 
   async deleteNetworksByController(controllerId: string): Promise<void> {
     await db.delete(networks).where(eq(networks.controllerId, controllerId));
+  }
+
+  async getWifiNetworksByControllerAndSite(controllerId: string, siteId: string): Promise<WifiNetwork[]> {
+    return db.select().from(wifiNetworks).where(
+      and(eq(wifiNetworks.controllerId, controllerId), eq(wifiNetworks.siteId, siteId))
+    );
+  }
+
+  async getWifiNetwork(id: string): Promise<WifiNetwork | undefined> {
+    const [wn] = await db.select().from(wifiNetworks).where(eq(wifiNetworks.id, id));
+    return wn;
+  }
+
+  async createWifiNetwork(data: InsertWifiNetwork): Promise<WifiNetwork> {
+    const [wn] = await db.insert(wifiNetworks).values(data).returning();
+    return wn;
+  }
+
+  async deleteWifiNetwork(id: string): Promise<void> {
+    await db.delete(wifiNetworks).where(eq(wifiNetworks.id, id));
+  }
+
+  async deleteWifiNetworksByController(controllerId: string): Promise<void> {
+    await db.delete(wifiNetworks).where(eq(wifiNetworks.controllerId, controllerId));
   }
 
   async getSitesByController(controllerId: string): Promise<Site[]> {

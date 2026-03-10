@@ -264,7 +264,7 @@ export default function ControllersPage() {
   const [editController, setEditController] = useState<Controller | null>(null);
   const [expandedCtrlId, setExpandedCtrlId] = useState<string | null>(null);
   const [expandedSiteId, setExpandedSiteId] = useState<string | null>(null);
-  const [siteTab, setSiteTab] = useState<"networks" | "devices">("networks");
+  const [siteTab, setSiteTab] = useState<"networks" | "wifi" | "devices">("networks");
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
   const [addNetworkOpen, setAddNetworkOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
@@ -274,6 +274,14 @@ export default function ControllersPage() {
   const [networkDhcpEnabled, setNetworkDhcpEnabled] = useState(true);
   const [networkDhcpStart, setNetworkDhcpStart] = useState("");
   const [networkDhcpStop, setNetworkDhcpStop] = useState("");
+
+  const [addWifiOpen, setAddWifiOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
+  const [wifiName, setWifiName] = useState("");
+  const [wifiPassword, setWifiPassword] = useState("");
+  const [wifiWpaMode, setWifiWpaMode] = useState("wpa2");
+  const [wifiSecurityMode, setWifiSecurityMode] = useState("wpapsk");
+  const [wifiNetworkConfId, setWifiNetworkConfId] = useState("");
+  const [showWifiPassword, setShowWifiPassword] = useState(false);
 
   const [importDevicesOpen, setImportDevicesOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
@@ -331,6 +339,16 @@ export default function ControllersPage() {
   const { data: importedDevices, isLoading: devicesLoading } = useQuery<Device[]>({
     queryKey: ["/api/devices"],
     enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "devices",
+  });
+
+  const { data: wifiNetworks, isLoading: wifiLoading } = useQuery<any[]>({
+    queryKey: ["/api/wifi-networks/controller", expandedCtrlId, "site", expandedSiteId],
+    queryFn: async () => {
+      if (!expandedCtrlId || !expandedSiteId) return [];
+      const res = await fetch(`/api/wifi-networks/controller/${expandedCtrlId}?siteId=${encodeURIComponent(expandedSiteId)}`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "wifi",
   });
 
   const { data: liveDevices, isFetching: fetchingLiveDevices, refetch: refetchLiveDevices } = useQuery<any[]>({
@@ -424,6 +442,35 @@ export default function ControllersPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
       toast({ title: "Device removed" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const addWifiMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/wifi-networks", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller"] });
+      toast({ title: "WiFi network created" });
+      setAddWifiOpen(null);
+      setWifiName("");
+      setWifiPassword("");
+      setWifiWpaMode("wpa2");
+      setWifiSecurityMode("wpapsk");
+      setWifiNetworkConfId("");
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteWifiMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/wifi-networks/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller"] });
+      toast({ title: "WiFi network deleted" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -679,6 +726,117 @@ export default function ControllersPage() {
             )}
             <Button type="submit" className="w-full" disabled={createNetworkMutation.isPending} data-testid="button-submit-network">
               {createNetworkMutation.isPending ? "Creating..." : "Create Network"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!addWifiOpen} onOpenChange={(open) => { if (!open) { setAddWifiOpen(null); setWifiName(""); setWifiPassword(""); setWifiWpaMode("wpa2"); setWifiSecurityMode("wpapsk"); setWifiNetworkConfId(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add WiFi Network</DialogTitle>
+            <DialogDescription>Create a wireless SSID on the UniFi controller.</DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!addWifiOpen) return;
+              addWifiMutation.mutate({
+                controllerId: addWifiOpen.controllerId,
+                siteId: addWifiOpen.siteId,
+                name: wifiName,
+                password: wifiPassword,
+                wpaMode: wifiWpaMode,
+                securityMode: wifiSecurityMode,
+                networkConfId: wifiNetworkConfId || undefined,
+              });
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label>SSID Name</Label>
+              <Input
+                value={wifiName}
+                onChange={(e) => setWifiName(e.target.value)}
+                placeholder="e.g., Building-A-WiFi"
+                required
+                data-testid="input-wifi-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Password</Label>
+              <div className="relative">
+                <Input
+                  type={showWifiPassword ? "text" : "password"}
+                  value={wifiPassword}
+                  onChange={(e) => setWifiPassword(e.target.value)}
+                  placeholder="Min 8 characters"
+                  required
+                  minLength={8}
+                  data-testid="input-wifi-password"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                  onClick={() => setShowWifiPassword(!showWifiPassword)}
+                  data-testid="button-toggle-wifi-password"
+                >
+                  {showWifiPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Security</Label>
+                <Select value={wifiSecurityMode} onValueChange={setWifiSecurityMode}>
+                  <SelectTrigger data-testid="select-wifi-security">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="wpapsk">WPA Personal</SelectItem>
+                    <SelectItem value="open">Open</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>WPA Mode</Label>
+                <Select value={wifiWpaMode} onValueChange={setWifiWpaMode}>
+                  <SelectTrigger data-testid="select-wifi-wpa-mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="wpa2">WPA2</SelectItem>
+                    <SelectItem value="wpa3">WPA3</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>VLAN Network (optional)</Label>
+              <Select value={wifiNetworkConfId || "_none"} onValueChange={(v) => setWifiNetworkConfId(v === "_none" ? "" : v)}>
+                <SelectTrigger data-testid="select-wifi-network">
+                  <SelectValue placeholder="Default network" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">Default (no VLAN)</SelectItem>
+                  {siteNetworks?.map((net: any) => (
+                    <SelectItem key={net.networkConfId || net.id} value={net.networkConfId || net.id}>
+                      {net.name} {net.vlanId ? `(VLAN ${net.vlanId})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Assign this WiFi to a specific VLAN network.</p>
+            </div>
+            {addWifiMutation.isError && (
+              <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-3" data-testid="text-wifi-error">
+                {(addWifiMutation.error as any)?.message || "Failed to create WiFi network"}
+              </div>
+            )}
+            <Button type="submit" className="w-full" disabled={addWifiMutation.isPending} data-testid="button-submit-wifi">
+              {addWifiMutation.isPending ? "Creating..." : "Create WiFi Network"}
             </Button>
           </form>
         </DialogContent>
@@ -1086,6 +1244,15 @@ export default function ControllersPage() {
                                       {siteNetworks && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{siteNetworks.length}</Badge>}
                                     </button>
                                     <button
+                                      className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "wifi" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                                      onClick={() => setSiteTab("wifi")}
+                                      data-testid={`button-tab-wifi-${siteKey}`}
+                                    >
+                                      <Wifi className="h-3.5 w-3.5" />
+                                      WiFi
+                                      {wifiNetworks && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{wifiNetworks.length}</Badge>}
+                                    </button>
+                                    <button
                                       className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "devices" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
                                       onClick={() => setSiteTab("devices")}
                                       data-testid={`button-tab-devices-${siteKey}`}
@@ -1181,6 +1348,98 @@ export default function ControllersPage() {
                                       ) : (
                                         <p className="text-sm text-muted-foreground py-4 text-center">
                                           No networks found. Add a network or test the controller connection to discover existing networks.
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {siteTab === "wifi" && (
+                                    <div className="p-3">
+                                      <div className="flex items-center justify-end mb-3">
+                                        <Button
+                                          size="sm"
+                                          onClick={() => setAddWifiOpen({ controllerId: ctrl.id, siteId: siteKey })}
+                                          data-testid={`button-add-wifi-${siteKey}`}
+                                        >
+                                          <Plus className="h-3.5 w-3.5 mr-1" />
+                                          Add WiFi Network
+                                        </Button>
+                                      </div>
+                                      {wifiLoading ? (
+                                        <div className="space-y-2">
+                                          <Skeleton className="h-8 w-full" />
+                                          <Skeleton className="h-8 w-full" />
+                                          <Skeleton className="h-8 w-full" />
+                                        </div>
+                                      ) : wifiNetworks && wifiNetworks.length > 0 ? (
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead>SSID</TableHead>
+                                              <TableHead>Security</TableHead>
+                                              <TableHead>Password</TableHead>
+                                              <TableHead>Status</TableHead>
+                                              <TableHead>Source</TableHead>
+                                              <TableHead className="w-[60px]">Actions</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {wifiNetworks.map((wn: any) => (
+                                              <TableRow key={wn.id} data-testid={`row-wifi-${wn.id}`}>
+                                                <TableCell className="font-medium">
+                                                  <div className="flex items-center gap-2">
+                                                    <Wifi className="h-4 w-4 text-muted-foreground" />
+                                                    {wn.name}
+                                                    {wn.isGuest && <Badge variant="outline" className="text-xs">Guest</Badge>}
+                                                  </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                  <Badge variant="outline" className="text-xs">
+                                                    {wn.securityMode === "wpapsk" ? (wn.wpaMode === "wpa3" ? "WPA3" : wn.wpaMode === "wpa2" ? "WPA2" : wn.wpaMode || "WPA") : wn.securityMode === "open" ? "Open" : wn.securityMode || "—"}
+                                                  </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                  {wn.password ? (
+                                                    <span className="text-sm font-mono text-muted-foreground">••••••••</span>
+                                                  ) : (
+                                                    <span className="text-xs text-muted-foreground">—</span>
+                                                  )}
+                                                </TableCell>
+                                                <TableCell>
+                                                  <Badge variant={wn.enabled ? "default" : "secondary"} className="text-xs">
+                                                    {wn.enabled ? "Enabled" : "Disabled"}
+                                                  </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                  <Badge variant={wn.isManaged ? "default" : "outline"} className="text-xs">
+                                                    {wn.isManaged ? "Web UI" : "Controller"}
+                                                  </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                  {wn.isManaged ? (
+                                                    <Button
+                                                      size="icon"
+                                                      variant="ghost"
+                                                      onClick={() => {
+                                                        if (confirm(`Delete WiFi network "${wn.name}"? This will also remove it from the UniFi controller.`)) {
+                                                          deleteWifiMutation.mutate(wn.id);
+                                                        }
+                                                      }}
+                                                      data-testid={`button-delete-wifi-${wn.id}`}
+                                                    >
+                                                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                                    </Button>
+                                                  ) : (
+                                                    <Lock className="h-4 w-4 text-muted-foreground ml-2" />
+                                                  )}
+                                                </TableCell>
+                                              </TableRow>
+                                            ))}
+                                          </TableBody>
+                                        </Table>
+                                      ) : (
+                                        <p className="text-center text-sm text-muted-foreground py-8">
+                                          No WiFi networks found on this site. Add one to create a wireless SSID.
                                         </p>
                                       )}
                                     </div>

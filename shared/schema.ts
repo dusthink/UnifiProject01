@@ -115,6 +115,22 @@ export const unitDevicePorts = pgTable("unit_device_ports", {
   portNumber: integer("port_number").notNull(),
 });
 
+export const wifiNetworks = pgTable("wifi_networks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  controllerId: varchar("controller_id").notNull(),
+  name: text("name").notNull(),
+  securityMode: text("security_mode").default("wpapsk"),
+  wpaMode: text("wpa_mode").default("wpa2"),
+  password: text("password"),
+  networkConfId: text("network_conf_id"),
+  vlanId: integer("vlan_id"),
+  isGuest: boolean("is_guest").default(false),
+  enabled: boolean("enabled").default(true),
+  unifiWlanId: text("unifi_wlan_id"),
+  siteId: text("site_id").default("default"),
+  isManaged: boolean("is_managed").default(true),
+});
+
 export const inviteTokens = pgTable("invite_tokens", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   token: text("token").notNull().unique(),
@@ -171,6 +187,7 @@ export const inviteTokensRelations = relations(inviteTokens, ({ one }) => ({
 
 export const insertControllerSchema = createInsertSchema(controllers).omit({ id: true });
 export const insertNetworkSchema = createInsertSchema(networks).omit({ id: true });
+export const insertWifiNetworkSchema = createInsertSchema(wifiNetworks).omit({ id: true });
 export const insertSiteSchema = createInsertSchema(sites).omit({ id: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertCommunitySchema = createInsertSchema(communities).omit({ id: true });
@@ -196,6 +213,8 @@ export type InsertController = z.infer<typeof insertControllerSchema>;
 export type Controller = typeof controllers.$inferSelect;
 export type InsertNetwork = z.infer<typeof insertNetworkSchema>;
 export type Network = typeof networks.$inferSelect;
+export type InsertWifiNetwork = z.infer<typeof insertWifiNetworkSchema>;
+export type WifiNetwork = typeof wifiNetworks.$inferSelect;
 export type InsertSite = z.infer<typeof insertSiteSchema>;
 export type Site = typeof sites.$inferSelect;
 export type InsertInviteToken = z.infer<typeof insertInviteTokenSchema>;

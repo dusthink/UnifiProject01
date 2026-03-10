@@ -50,6 +50,34 @@ export async function registerRoutes(
 ): Promise<Server> {
   setupAuth(app);
 
+  app.get("/api/debug/controller-rules/:controllerId", requireAdmin, async (req, res) => {
+    try {
+      const controller = await storage.getController(req.params.controllerId);
+      if (!controller) return res.status(404).json({ message: "Controller not found" });
+      const client = new UnifiClient(controller.url, controller.username, controller.password);
+      await client.login();
+      const siteId = "default";
+      const fwRules = await client.getFirewallRules(siteId);
+      const trafficRules = await client.getTrafficRules(siteId);
+      res.json({ firewallRules: fwRules, trafficRules, firewallRuleCount: fwRules.length, trafficRuleCount: trafficRules.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/debug/test-traffic-rule/:controllerId", requireAdmin, async (req, res) => {
+    try {
+      const controller = await storage.getController(req.params.controllerId);
+      if (!controller) return res.status(404).json({ message: "Controller not found" });
+      const client = new UnifiClient(controller.url, controller.username, controller.password);
+      await client.login();
+      const result = await client.createTrafficRule("default", req.body);
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   await seedAdmin();
 
   app.post("/api/auth/login", (req, res, next) => {
@@ -1153,7 +1181,11 @@ export async function registerRoutes(
             const siteId = existing.siteId || "default";
             if (extra.networkIsolation) {
               try {
-                await client.createNetworkIsolationRules(siteId, existing.unifiNetworkId, existing.name);
+                const ruleIds = await client.createNetworkIsolationRules(siteId, existing.unifiNetworkId, existing.name);
+                if (ruleIds.length === 0) {
+                  isolationSuccess = false;
+                  console.warn(`[networks] Isolation rules returned 0 IDs — marking as failed`);
+                }
               } catch (e: any) {
                 isolationSuccess = false;
                 console.warn(`[networks] Could not create isolation rules: ${e.message}`);
@@ -1175,7 +1207,14 @@ export async function registerRoutes(
       if (req.body.networkIsolation !== undefined) {
         if (isolationSuccess) {
           dbUpdates.networkIsolation = req.body.networkIsolation;
+        } else {
+          return res.status(400).json({ message: "Failed to configure network isolation on the controller" });
         }
+      }
+      if (Object.keys(dbUpdates).length === 0) {
+        const existing = await storage.getNetwork(req.params.id);
+        if (!existing) return res.status(404).json({ message: "Network not found" });
+        return res.json(existing);
       }
       const network = await storage.updateNetwork(req.params.id, dbUpdates);
       if (!network) return res.status(404).json({ message: "Network not found" });

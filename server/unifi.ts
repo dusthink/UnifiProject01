@@ -285,112 +285,148 @@ export class UnifiClient {
     return this.request(`/api/s/${siteId}/rest/firewallrule/${ruleId}`, "DELETE");
   }
 
+
+  async getTrafficRules(siteId: string): Promise<any[]> {
+    try {
+      const data = await this.request(`/v2/api/site/${siteId}/trafficrules`, "GET");
+      return Array.isArray(data) ? data : (data?.data || []);
+    } catch (e: any) {
+      console.warn(`[unifi] v2 trafficrules endpoint not available: ${e.message}`);
+      return [];
+    }
+  }
+
+  async createTrafficRule(siteId: string, rule: Record<string, any>): Promise<any> {
+    return this.request(`/v2/api/site/${siteId}/trafficrules`, "POST", rule);
+  }
+
+  async deleteTrafficRule(siteId: string, ruleId: string): Promise<any> {
+    return this.request(`/v2/api/site/${siteId}/trafficrules/${ruleId}`, "DELETE");
+  }
+
   async createNetworkIsolationRules(siteId: string, networkId: string, networkName: string): Promise<string[]> {
-    console.log(`[unifi] Creating isolation rules for network ${networkName} (${networkId}) on site ${siteId}`);
-    const existingRules = await this.getFirewallRules(siteId);
+    console.log(`[unifi] Creating isolation for network ${networkName} (${networkId}) on site ${siteId}`);
     const ruleIds: string[] = [];
 
-    console.log(`[unifi] Existing firewall rules (${existingRules.length} total):`);
-    for (const r of existingRules) {
-      console.log(`  - ${r.name} | ruleset=${r.ruleset} | index=${r.rule_index} | action=${r.action}`);
+    const existingTrafficRules = await this.getTrafficRules(siteId);
+    const ruleName = `Isolate_${networkId}`;
+    const existing = existingTrafficRules.find((r: any) => r.description === ruleName);
+    if (existing) {
+      console.log(`[unifi] Isolation traffic rule already exists: ${existing._id}`);
+      ruleIds.push(existing._id);
+      return ruleIds;
     }
 
-    const lanInRules = existingRules.filter((r: any) => r.ruleset === "LAN_IN");
-    const usedIndices = new Set(lanInRules.map((r: any) => r.rule_index));
-    let nextIdx = 2000;
-    while (usedIndices.has(nextIdx) || usedIndices.has(nextIdx + 1)) {
-      nextIdx += 2;
-      if (nextIdx >= 3998) {
-        throw new Error("No available firewall rule indices in range 2000-3999");
+    try {
+      const trafficRule = {
+        action: "BLOCK",
+        description: ruleName,
+        enabled: true,
+        matching_target: "LOCAL_NETWORK",
+        target_devices: [{
+          type: "NETWORK",
+          network_id: networkId,
+        }],
+        traffic_direction: "FROM",
+      };
+      console.log(`[unifi] Creating v2 traffic rule for isolation`);
+      const result = await this.createTrafficRule(siteId, trafficRule);
+      const id = result?._id || result?.data?.[0]?._id;
+      if (id) {
+        console.log(`[unifi] Traffic rule created: ${id}`);
+        ruleIds.push(id);
+      } else {
+        console.warn(`[unifi] No rule ID returned from traffic rule creation`);
       }
+      return ruleIds;
+    } catch (e: any) {
+      console.warn(`[unifi] v2 traffic rule failed (${e.message}), trying legacy firewall rules`);
     }
 
-    const ruleNameFrom = `Isolate_${networkId}_from`;
-    const ruleNameTo = `Isolate_${networkId}_to`;
+    try {
+      const existingFwRules = await this.getFirewallRules(siteId);
+      const ruleNameFrom = `Isolate_${networkId}_from`;
+      const ruleNameTo = `Isolate_${networkId}_to`;
 
-    const existingFrom = existingRules.find((r: any) => r.name === ruleNameFrom);
-    const existingTo = existingRules.find((r: any) => r.name === ruleNameTo);
+      const existFrom = existingFwRules.find((r: any) => r.name === ruleNameFrom);
+      const existTo = existingFwRules.find((r: any) => r.name === ruleNameTo);
 
-    if (existingFrom) {
-      console.log(`[unifi] Isolation rule '${ruleNameFrom}' already exists: ${existingFrom._id}`);
-      ruleIds.push(existingFrom._id);
-    } else {
-      console.log(`[unifi] Creating isolation rule '${ruleNameFrom}' at index ${nextIdx}`);
-      const result = await this.createFirewallRule(siteId, {
-        name: ruleNameFrom,
-        enabled: true,
-        ruleset: "LAN_IN",
-        rule_index: nextIdx,
-        action: "drop",
-        protocol: "all",
-        src_firewallgroup_ids: [],
-        src_network_id: networkId,
-        src_network_type: "NETv4",
-        dst_firewallgroup_ids: [],
-        dst_network_type: "NETv4",
-        dst_address: "",
-        state_established: false,
-        state_invalid: false,
-        state_new: true,
-        state_related: false,
-        ipsec: "",
-        logging: false,
-      });
-      console.log(`[unifi] Firewall rule create response:`, JSON.stringify(result?.meta || result?.data?.[0]?._id || 'no-id'));
-      const id = result?.data?.[0]?._id || result?._id;
-      if (id) ruleIds.push(id);
-      else console.warn(`[unifi] No rule ID returned for '${ruleNameFrom}'`);
+      const lanInRules = existingFwRules.filter((r: any) => r.ruleset === "LAN_IN");
+      const usedIndices = new Set(lanInRules.map((r: any) => r.rule_index));
+      let nextIdx = 2000;
+      while (usedIndices.has(nextIdx) || usedIndices.has(nextIdx + 1)) {
+        nextIdx += 2;
+        if (nextIdx >= 3998) throw new Error("No available firewall rule indices");
+      }
+
+      if (existFrom) {
+        ruleIds.push(existFrom._id);
+      } else {
+        const r = await this.createFirewallRule(siteId, {
+          name: ruleNameFrom, enabled: true, ruleset: "LAN_IN",
+          rule_index: nextIdx, action: "drop", protocol: "all",
+          src_firewallgroup_ids: [], src_network_id: networkId,
+          src_network_type: "NETv4", dst_firewallgroup_ids: [],
+          dst_network_type: "NETv4", dst_address: "",
+          state_established: false, state_invalid: false,
+          state_new: true, state_related: false, ipsec: "", logging: false,
+        });
+        const id = r?.data?.[0]?._id || r?._id;
+        if (id) ruleIds.push(id);
+      }
+
+      if (existTo) {
+        ruleIds.push(existTo._id);
+      } else {
+        const r = await this.createFirewallRule(siteId, {
+          name: ruleNameTo, enabled: true, ruleset: "LAN_IN",
+          rule_index: nextIdx + 1, action: "drop", protocol: "all",
+          src_firewallgroup_ids: [], src_network_type: "NETv4",
+          dst_firewallgroup_ids: [], dst_network_id: networkId,
+          dst_network_type: "NETv4", dst_address: "",
+          state_established: false, state_invalid: false,
+          state_new: true, state_related: false, ipsec: "", logging: false,
+        });
+        const id = r?.data?.[0]?._id || r?._id;
+        if (id) ruleIds.push(id);
+      }
+    } catch (e: any) {
+      console.warn(`[unifi] Legacy firewall rule creation also failed: ${e.message}`);
     }
 
-    if (existingTo) {
-      console.log(`[unifi] Isolation rule '${ruleNameTo}' already exists: ${existingTo._id}`);
-      ruleIds.push(existingTo._id);
-    } else {
-      console.log(`[unifi] Creating isolation rule '${ruleNameTo}' at index ${nextIdx + 1}`);
-      const result = await this.createFirewallRule(siteId, {
-        name: ruleNameTo,
-        enabled: true,
-        ruleset: "LAN_IN",
-        rule_index: nextIdx + 1,
-        action: "drop",
-        protocol: "all",
-        src_firewallgroup_ids: [],
-        src_network_type: "NETv4",
-        dst_firewallgroup_ids: [],
-        dst_network_id: networkId,
-        dst_network_type: "NETv4",
-        dst_address: "",
-        state_established: false,
-        state_invalid: false,
-        state_new: true,
-        state_related: false,
-        ipsec: "",
-        logging: false,
-      });
-      console.log(`[unifi] Firewall rule create response:`, JSON.stringify(result?.meta || result?.data?.[0]?._id || 'no-id'));
-      const id = result?.data?.[0]?._id || result?._id;
-      if (id) ruleIds.push(id);
-      else console.warn(`[unifi] No rule ID returned for '${ruleNameTo}'`);
-    }
-
-    console.log(`[unifi] Isolation rules result: ${ruleIds.length} rules created/found for ${networkName}`);
+    console.log(`[unifi] Isolation result: ${ruleIds.length} rule(s) for ${networkName}`);
     return ruleIds;
   }
 
   async deleteNetworkIsolationRules(siteId: string, networkUnifiId: string): Promise<void> {
     try {
-      const rules = await this.getFirewallRules(siteId);
+      const trafficRules = await this.getTrafficRules(siteId);
+      const ruleName = `Isolate_${networkUnifiId}`;
+      for (const rule of trafficRules) {
+        if (rule.description === ruleName) {
+          console.log(`[unifi] Deleting traffic rule ${rule._id}`);
+          await this.deleteTrafficRule(siteId, rule._id);
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[unifi] Error cleaning up traffic rules: ${e.message}`);
+    }
+
+    try {
+      const fwRules = await this.getFirewallRules(siteId);
       const ruleNameFrom = `Isolate_${networkUnifiId}_from`;
       const ruleNameTo = `Isolate_${networkUnifiId}_to`;
-      for (const rule of rules) {
+      for (const rule of fwRules) {
         if (rule.name === ruleNameFrom || rule.name === ruleNameTo) {
+          console.log(`[unifi] Deleting legacy firewall rule ${rule._id}`);
           await this.deleteFirewallRule(siteId, rule._id);
         }
       }
     } catch (e: any) {
-      console.warn(`[unifi] Could not delete isolation rules: ${e.message}`);
+      console.warn(`[unifi] Error cleaning up legacy firewall rules: ${e.message}`);
     }
   }
+
 
   async createWlan(siteId: string, opts: {
     name: string;

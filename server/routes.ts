@@ -876,6 +876,118 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/networks/:id/details", requireAdmin, async (req, res) => {
+    try {
+      const network = await storage.getNetwork(req.params.id);
+      if (!network) return res.status(404).json({ message: "Network not found" });
+      let unifi: any = null;
+      if (network.unifiNetworkId) {
+        const controller = await storage.getController(network.controllerId);
+        if (controller?.isVerified) {
+          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+          const raw = await client.getNetworkDetail(network.siteId || "default", network.unifiNetworkId);
+          if (raw) {
+            unifi = {
+              _id: raw._id,
+              name: raw.name,
+              purpose: raw.purpose,
+              vlan: raw.vlan,
+              vlan_enabled: raw.vlan_enabled,
+              ip_subnet: raw.ip_subnet,
+              dhcpd_enabled: raw.dhcpd_enabled,
+              dhcpd_start: raw.dhcpd_start,
+              dhcpd_stop: raw.dhcpd_stop,
+              dhcpd_dns_enabled: raw.dhcpd_dns_enabled,
+              networkgroup: raw.networkgroup,
+              setting_preference: raw.setting_preference,
+              ipv6_setting_preference: raw.ipv6_setting_preference,
+            };
+          }
+        }
+      }
+      res.json({ local: network, unifi });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/wifi-networks/:id/details", requireAdmin, async (req, res) => {
+    try {
+      const wifi = await storage.getWifiNetwork(req.params.id);
+      if (!wifi) return res.status(404).json({ message: "WiFi network not found" });
+      let unifi: any = null;
+      if (wifi.unifiWlanId) {
+        const controller = await storage.getController(wifi.controllerId);
+        if (controller?.isVerified) {
+          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+          const raw = await client.getWlanDetail(wifi.siteId || "default", wifi.unifiWlanId);
+          if (raw) {
+            unifi = {
+              _id: raw._id,
+              name: raw.name,
+              security: raw.security,
+              wpa_mode: raw.wpa_mode,
+              wlan_band: raw.wlan_band,
+              wlan_bands: raw.wlan_bands,
+              enabled: raw.enabled,
+              is_guest: raw.is_guest,
+              hide_ssid: raw.hide_ssid,
+              pmf_mode: raw.pmf_mode,
+              ap_group_mode: raw.ap_group_mode,
+              ap_group_ids: raw.ap_group_ids,
+              broadcasting_aps: raw.broadcasting_aps,
+              private_preshared_keys_enabled: raw.private_preshared_keys_enabled,
+              ppsk_key_count: raw.private_preshared_keys?.length || 0,
+              networkconf_id: raw.networkconf_id,
+              usergroup_id: raw.usergroup_id,
+            };
+          }
+        }
+      }
+      res.json({ local: wifi, unifi });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/devices/:id/details", requireAdmin, async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) return res.status(404).json({ message: "Device not found" });
+      let unifi: any = null;
+      const controllerId = req.query.controllerId as string;
+      const siteId = (req.query.siteId as string) || "default";
+      if (device.macAddress && controllerId) {
+        const controller = await storage.getController(controllerId);
+        if (controller?.isVerified) {
+          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+          const raw = await client.getDeviceDetail(siteId, device.macAddress);
+          if (raw) {
+            unifi = {
+              name: raw.name,
+              model: raw.model,
+              type: raw.type,
+              ip: raw.ip,
+              mac: raw.mac,
+              version: raw.version,
+              state: raw.state,
+              adopted: raw.adopted,
+              uptime: raw.uptime,
+              last_seen: raw.last_seen,
+              satisfaction: raw.satisfaction,
+              kernel_version: raw.kernel_version,
+              serial: raw.serial,
+              led_override: raw.led_override,
+            };
+          }
+        }
+      }
+      res.json({ local: device, unifi });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.patch("/api/networks/:id", requireAdmin, async (req, res) => {
     try {
       const existing = await storage.getNetwork(req.params.id);

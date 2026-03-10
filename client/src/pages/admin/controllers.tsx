@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -621,6 +621,434 @@ function BackupDialog({ controller, open, onOpenChange }: { controller: Controll
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function EditNetworkDialog({ editNetwork, setEditNetwork, editNetworkMutation }: any) {
+  const [details, setDetails] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (editNetwork?.id) {
+      setLoading(true);
+      setDetails(null);
+      fetch(`/api/networks/${editNetwork.id}/details`, { credentials: "include" })
+        .then(r => r.json())
+        .then(d => {
+          if (d.unifi) {
+            setEditNetwork((prev: any) => prev ? {
+              ...prev,
+              name: d.unifi.name || prev.name,
+              ipSubnet: d.unifi.ip_subnet || prev.ipSubnet,
+              vlanId: d.unifi.vlan ?? prev.vlanId,
+              dhcpEnabled: d.unifi.dhcpd_enabled ?? prev.dhcpEnabled,
+              dhcpStart: d.unifi.dhcpd_start || prev.dhcpStart,
+              dhcpStop: d.unifi.dhcpd_stop || prev.dhcpStop,
+              purpose: d.unifi.purpose || prev.purpose,
+              networkgroup: d.unifi.networkgroup || "LAN",
+              vlanEnabled: d.unifi.vlan_enabled ?? true,
+            } : prev);
+          }
+          setDetails(d);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    }
+  }, [editNetwork?.id]);
+
+  return (
+    <Dialog open={!!editNetwork} onOpenChange={(open) => { if (!open) setEditNetwork(null); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit Network</DialogTitle>
+          <DialogDescription>Modify network settings. Changes will sync to the UniFi controller.</DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <div className="space-y-3 py-4">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-3/4" />
+          </div>
+        ) : editNetwork && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <Label>Name</Label>
+                <Input
+                  value={editNetwork.name}
+                  onChange={(e) => setEditNetwork({ ...editNetwork, name: e.target.value })}
+                  data-testid="input-edit-network-name"
+                />
+              </div>
+              <div>
+                <Label>VLAN ID</Label>
+                <Input value={editNetwork.vlanId ?? ""} disabled className="bg-muted" data-testid="text-edit-network-vlan" />
+              </div>
+              <div>
+                <Label>Purpose</Label>
+                <Input value={editNetwork.purpose || "corporate"} disabled className="bg-muted" data-testid="text-edit-network-purpose" />
+              </div>
+              <div className="col-span-2">
+                <Label>IP Subnet</Label>
+                <Input value={editNetwork.ipSubnet || ""} disabled className="bg-muted" data-testid="text-edit-network-subnet" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={editNetwork.dhcpEnabled}
+                onCheckedChange={(v) => setEditNetwork({ ...editNetwork, dhcpEnabled: v })}
+                data-testid="switch-edit-network-dhcp"
+              />
+              <Label>DHCP Server</Label>
+            </div>
+            {editNetwork.dhcpEnabled && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>DHCP Range Start</Label>
+                  <Input
+                    value={editNetwork.dhcpStart || ""}
+                    onChange={(e) => setEditNetwork({ ...editNetwork, dhcpStart: e.target.value })}
+                    data-testid="input-edit-network-dhcp-start"
+                  />
+                </div>
+                <div>
+                  <Label>DHCP Range End</Label>
+                  <Input
+                    value={editNetwork.dhcpStop || ""}
+                    onChange={(e) => setEditNetwork({ ...editNetwork, dhcpStop: e.target.value })}
+                    data-testid="input-edit-network-dhcp-stop"
+                  />
+                </div>
+              </div>
+            )}
+            {details?.unifi && (
+              <div className="rounded-md border bg-muted/30 p-3">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Controller Info</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  <span className="text-muted-foreground">Network Group</span>
+                  <span>{details.unifi.networkgroup || "—"}</span>
+                  <span className="text-muted-foreground">VLAN Tagging</span>
+                  <span>{details.unifi.vlan_enabled ? "Enabled" : "Disabled"}</span>
+                  <span className="text-muted-foreground">UniFi ID</span>
+                  <span className="font-mono">{details.unifi._id || "—"}</span>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setEditNetwork(null)} data-testid="button-edit-network-cancel">Cancel</Button>
+              <Button
+                onClick={() => editNetworkMutation.mutate({
+                  id: editNetwork.id,
+                  data: { name: editNetwork.name, dhcpEnabled: editNetwork.dhcpEnabled, dhcpStart: editNetwork.dhcpStart, dhcpStop: editNetwork.dhcpStop },
+                })}
+                disabled={editNetworkMutation.isPending}
+                data-testid="button-edit-network-save"
+              >
+                {editNetworkMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation }: any) {
+  const [details, setDetails] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    if (editWifi?.id) {
+      setLoading(true);
+      setDetails(null);
+      setShowPassword(false);
+      fetch(`/api/wifi-networks/${editWifi.id}/details`, { credentials: "include" })
+        .then(r => r.json())
+        .then(d => {
+          if (d.unifi) {
+            setEditWifi((prev: any) => prev ? {
+              ...prev,
+              name: d.unifi.name || prev.name,
+              enabled: d.unifi.enabled ?? prev.enabled,
+              securityMode: d.unifi.security || prev.securityMode,
+              wpaMode: d.unifi.wpa_mode || prev.wpaMode,
+              wlanBand: d.unifi.wlan_band || "both",
+              isPpsk: d.unifi.private_preshared_keys_enabled || false,
+              ppskKeyCount: d.unifi.ppsk_key_count || 0,
+              currentPassword: "",
+              hideSsid: d.unifi.hide_ssid || false,
+              isGuest: d.unifi.is_guest || prev.isGuest,
+              pmfMode: d.unifi.pmf_mode || "disabled",
+            } : prev);
+          }
+          setDetails(d);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    }
+  }, [editWifi?.id]);
+
+  const isPpsk = editWifi?.isPpsk;
+
+  return (
+    <Dialog open={!!editWifi} onOpenChange={(open) => { if (!open) { setEditWifi(null); setDetails(null); } }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit WiFi Network</DialogTitle>
+          <DialogDescription>Modify wireless network settings. Changes will sync to the UniFi controller.</DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <div className="space-y-3 py-4">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-3/4" />
+          </div>
+        ) : editWifi && (
+          <div className="space-y-4">
+            <div>
+              <Label>SSID Name</Label>
+              <Input
+                value={editWifi.name}
+                onChange={(e) => setEditWifi({ ...editWifi, name: e.target.value })}
+                data-testid="input-edit-wifi-name"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Security</Label>
+                <Input value={
+                  editWifi.securityMode === "wpapsk" ? (editWifi.wpaMode === "wpa3" ? "WPA3 Personal" : "WPA2 Personal") :
+                  editWifi.securityMode === "open" ? "Open" : editWifi.securityMode || "—"
+                } disabled className="bg-muted" data-testid="text-edit-wifi-security" />
+              </div>
+              <div>
+                <Label>Band</Label>
+                <Input value={
+                  editWifi.wlanBand === "both" ? "2.4 GHz + 5 GHz" :
+                  editWifi.wlanBand === "2g" ? "2.4 GHz" :
+                  editWifi.wlanBand === "5g" ? "5 GHz" : editWifi.wlanBand || "Both"
+                } disabled className="bg-muted" data-testid="text-edit-wifi-band" />
+              </div>
+            </div>
+            {isPpsk && (
+              <div className="rounded-md border bg-blue-50 dark:bg-blue-950/30 p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Shield className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-medium">PPSK (Private Pre-Shared Keys)</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{editWifi.ppskKeyCount || 0} pre-shared keys configured. Passwords are managed per-network via PPSK keys.</p>
+              </div>
+            )}
+            {!isPpsk && editWifi.securityMode !== "open" && (
+              <div>
+                <Label>Password</Label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      value={editWifi.newPassword || ""}
+                      onChange={(e) => setEditWifi({ ...editWifi, newPassword: e.target.value })}
+                      placeholder="Leave blank to keep current password"
+                      data-testid="input-edit-wifi-password"
+                    />
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => setShowPassword(!showPassword)} type="button">
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Leave unchanged to keep the current password.</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={editWifi.enabled}
+                  onCheckedChange={(v) => setEditWifi({ ...editWifi, enabled: v })}
+                  data-testid="switch-edit-wifi-enabled"
+                />
+                <Label>Enabled</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={editWifi.isGuest || false}
+                  onCheckedChange={(v) => setEditWifi({ ...editWifi, isGuest: v })}
+                  data-testid="switch-edit-wifi-guest"
+                />
+                <Label>Guest Network</Label>
+              </div>
+            </div>
+            {details?.unifi && (
+              <div className="rounded-md border bg-muted/30 p-3">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Controller Info</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  <span className="text-muted-foreground">PMF Mode</span>
+                  <span>{details.unifi.pmf_mode || "Disabled"}</span>
+                  <span className="text-muted-foreground">AP Group Mode</span>
+                  <span>{details.unifi.ap_group_mode || "—"}</span>
+                  <span className="text-muted-foreground">Broadcasting APs</span>
+                  <span>{details.unifi.broadcasting_aps?.length ?? "—"}</span>
+                  <span className="text-muted-foreground">UniFi ID</span>
+                  <span className="font-mono">{details.unifi._id || "—"}</span>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { setEditWifi(null); setDetails(null); }} data-testid="button-edit-wifi-cancel">Cancel</Button>
+              <Button
+                onClick={() => {
+                  const data: any = { name: editWifi.name, enabled: editWifi.enabled, isGuest: editWifi.isGuest || false };
+                  if (editWifi.newPassword && editWifi.newPassword !== editWifi.currentPassword) {
+                    data.password = editWifi.newPassword;
+                  }
+                  editWifiMutation.mutate({ id: editWifi.id, data });
+                }}
+                disabled={editWifiMutation.isPending}
+                data-testid="button-edit-wifi-save"
+              >
+                {editWifiMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditDeviceDialog({ editDevice, setEditDevice, editDeviceMutation, controllerId, siteId }: any) {
+  const [details, setDetails] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (editDevice?.id && controllerId) {
+      setLoading(true);
+      setDetails(null);
+      fetch(`/api/devices/${editDevice.id}/details?controllerId=${controllerId}&siteId=${siteId || "default"}`, { credentials: "include" })
+        .then(r => r.json())
+        .then(d => {
+          if (d.unifi) {
+            setEditDevice((prev: any) => prev ? {
+              ...prev,
+              name: d.unifi.name || prev.name,
+              ip: d.unifi.ip || "",
+              firmwareVersion: d.unifi.version || "",
+              state: d.unifi.state === 1 ? "Connected" : d.unifi.state === 0 ? "Disconnected" : `State ${d.unifi.state}`,
+              adopted: d.unifi.adopted ?? false,
+              uptime: d.unifi.uptime || 0,
+              lastSeen: d.unifi.last_seen ? new Date(d.unifi.last_seen * 1000).toLocaleString() : "",
+              satisfaction: d.unifi.satisfaction ?? null,
+            } : prev);
+          }
+          setDetails(d);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    } else if (editDevice?.id) {
+      setLoading(false);
+    }
+  }, [editDevice?.id, controllerId]);
+
+  const formatUptime = (secs: number) => {
+    if (!secs) return "—";
+    const d = Math.floor(secs / 86400);
+    const h = Math.floor((secs % 86400) / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    return `${d > 0 ? d + "d " : ""}${h}h ${m}m`;
+  };
+
+  return (
+    <Dialog open={!!editDevice} onOpenChange={(open) => { if (!open) { setEditDevice(null); setDetails(null); } }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit Device</DialogTitle>
+          <DialogDescription>View device details and update its name.</DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <div className="space-y-3 py-4">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-3/4" />
+          </div>
+        ) : editDevice && (
+          <div className="space-y-4">
+            <div>
+              <Label>Name</Label>
+              <Input
+                value={editDevice.name}
+                onChange={(e) => setEditDevice({ ...editDevice, name: e.target.value })}
+                data-testid="input-edit-device-name"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Model</Label>
+                <Input value={editDevice.model || "—"} disabled className="bg-muted" data-testid="text-edit-device-model" />
+              </div>
+              <div>
+                <Label>Type</Label>
+                <Input value={editDevice.deviceType || "—"} disabled className="bg-muted" data-testid="text-edit-device-type" />
+              </div>
+              <div>
+                <Label>MAC Address</Label>
+                <Input value={editDevice.macAddress || "—"} disabled className="bg-muted font-mono" data-testid="text-edit-device-mac" />
+              </div>
+              {editDevice.portCount && (
+                <div>
+                  <Label>Ports</Label>
+                  <Input value={editDevice.portCount} disabled className="bg-muted" data-testid="text-edit-device-ports" />
+                </div>
+              )}
+            </div>
+            {details?.unifi && (
+              <div className="rounded-md border bg-muted/30 p-3">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Live Status from Controller</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  <span className="text-muted-foreground">Status</span>
+                  <span className="flex items-center gap-1">
+                    {editDevice.state === "Connected" ? (
+                      <><CheckCircle2 className="h-3 w-3 text-green-500" /> Connected</>
+                    ) : (
+                      <><XCircle className="h-3 w-3 text-red-500" /> {editDevice.state}</>
+                    )}
+                  </span>
+                  <span className="text-muted-foreground">IP Address</span>
+                  <span className="font-mono">{editDevice.ip || "—"}</span>
+                  <span className="text-muted-foreground">Firmware</span>
+                  <span>{editDevice.firmwareVersion || "—"}</span>
+                  <span className="text-muted-foreground">Uptime</span>
+                  <span>{formatUptime(editDevice.uptime)}</span>
+                  <span className="text-muted-foreground">Adopted</span>
+                  <span>{editDevice.adopted ? "Yes" : "No"}</span>
+                  {editDevice.satisfaction !== null && editDevice.satisfaction !== undefined && (
+                    <>
+                      <span className="text-muted-foreground">Satisfaction</span>
+                      <span>{editDevice.satisfaction}%</span>
+                    </>
+                  )}
+                  <span className="text-muted-foreground">Last Seen</span>
+                  <span>{editDevice.lastSeen || "—"}</span>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { setEditDevice(null); setDetails(null); }} data-testid="button-edit-device-cancel">Cancel</Button>
+              <Button
+                onClick={() => editDeviceMutation.mutate({
+                  id: editDevice.id,
+                  data: { name: editDevice.name },
+                })}
+                disabled={editDeviceMutation.isPending}
+                data-testid="button-edit-device-save"
+              >
+                {editDeviceMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2824,161 +3252,25 @@ export default function ControllersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editNetwork} onOpenChange={(open) => { if (!open) setEditNetwork(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Network</DialogTitle>
-          </DialogHeader>
-          {editNetwork && (
-            <div className="space-y-4">
-              <div>
-                <Label>Name</Label>
-                <Input
-                  value={editNetwork.name}
-                  onChange={(e) => setEditNetwork({ ...editNetwork, name: e.target.value })}
-                  data-testid="input-edit-network-name"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={editNetwork.dhcpEnabled}
-                  onCheckedChange={(v) => setEditNetwork({ ...editNetwork, dhcpEnabled: v })}
-                  data-testid="switch-edit-network-dhcp"
-                />
-                <Label>DHCP Enabled</Label>
-              </div>
-              {editNetwork.dhcpEnabled && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>DHCP Start</Label>
-                    <Input
-                      value={editNetwork.dhcpStart || ""}
-                      onChange={(e) => setEditNetwork({ ...editNetwork, dhcpStart: e.target.value })}
-                      data-testid="input-edit-network-dhcp-start"
-                    />
-                  </div>
-                  <div>
-                    <Label>DHCP Stop</Label>
-                    <Input
-                      value={editNetwork.dhcpStop || ""}
-                      onChange={(e) => setEditNetwork({ ...editNetwork, dhcpStop: e.target.value })}
-                      data-testid="input-edit-network-dhcp-stop"
-                    />
-                  </div>
-                </div>
-              )}
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setEditNetwork(null)} data-testid="button-edit-network-cancel">Cancel</Button>
-                <Button
-                  onClick={() => editNetworkMutation.mutate({
-                    id: editNetwork.id,
-                    data: { name: editNetwork.name, dhcpEnabled: editNetwork.dhcpEnabled, dhcpStart: editNetwork.dhcpStart, dhcpStop: editNetwork.dhcpStop },
-                  })}
-                  disabled={editNetworkMutation.isPending}
-                  data-testid="button-edit-network-save"
-                >
-                  {editNetworkMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <EditNetworkDialog
+        editNetwork={editNetwork}
+        setEditNetwork={setEditNetwork}
+        editNetworkMutation={editNetworkMutation}
+      />
 
-      <Dialog open={!!editWifi} onOpenChange={(open) => { if (!open) setEditWifi(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit WiFi Network</DialogTitle>
-          </DialogHeader>
-          {editWifi && (
-            <div className="space-y-4">
-              <div>
-                <Label>SSID Name</Label>
-                <Input
-                  value={editWifi.name}
-                  onChange={(e) => setEditWifi({ ...editWifi, name: e.target.value })}
-                  data-testid="input-edit-wifi-name"
-                />
-              </div>
-              {editWifi.password !== null && (
-                <div>
-                  <Label>Password (leave blank to keep current)</Label>
-                  <Input
-                    type="text"
-                    value={editWifi.newPassword || ""}
-                    onChange={(e) => setEditWifi({ ...editWifi, newPassword: e.target.value })}
-                    placeholder="••••••••"
-                    data-testid="input-edit-wifi-password"
-                  />
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={editWifi.enabled}
-                  onCheckedChange={(v) => setEditWifi({ ...editWifi, enabled: v })}
-                  data-testid="switch-edit-wifi-enabled"
-                />
-                <Label>Enabled</Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={editWifi.isGuest}
-                  onCheckedChange={(v) => setEditWifi({ ...editWifi, isGuest: v })}
-                  data-testid="switch-edit-wifi-guest"
-                />
-                <Label>Guest Network</Label>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setEditWifi(null)} data-testid="button-edit-wifi-cancel">Cancel</Button>
-                <Button
-                  onClick={() => {
-                    const data: any = { name: editWifi.name, enabled: editWifi.enabled, isGuest: editWifi.isGuest };
-                    if (editWifi.newPassword) data.password = editWifi.newPassword;
-                    editWifiMutation.mutate({ id: editWifi.id, data });
-                  }}
-                  disabled={editWifiMutation.isPending}
-                  data-testid="button-edit-wifi-save"
-                >
-                  {editWifiMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <EditWifiDialog
+        editWifi={editWifi}
+        setEditWifi={setEditWifi}
+        editWifiMutation={editWifiMutation}
+      />
 
-      <Dialog open={!!editDevice} onOpenChange={(open) => { if (!open) setEditDevice(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Device</DialogTitle>
-          </DialogHeader>
-          {editDevice && (
-            <div className="space-y-4">
-              <div>
-                <Label>Name</Label>
-                <Input
-                  value={editDevice.name}
-                  onChange={(e) => setEditDevice({ ...editDevice, name: e.target.value })}
-                  data-testid="input-edit-device-name"
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setEditDevice(null)} data-testid="button-edit-device-cancel">Cancel</Button>
-                <Button
-                  onClick={() => editDeviceMutation.mutate({
-                    id: editDevice.id,
-                    data: { name: editDevice.name },
-                  })}
-                  disabled={editDeviceMutation.isPending}
-                  data-testid="button-edit-device-save"
-                >
-                  {editDeviceMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <EditDeviceDialog
+        editDevice={editDevice}
+        setEditDevice={setEditDevice}
+        editDeviceMutation={editDeviceMutation}
+        controllerId={expandedCtrlId}
+        siteId={expandedSiteId}
+      />
     </div>
   );
 }

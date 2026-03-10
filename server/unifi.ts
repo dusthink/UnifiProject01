@@ -453,8 +453,18 @@ export class UnifiClient {
     return Buffer.from(arrayBuffer);
   }
 
+  async getNetworkDetail(siteId: string, networkId: string): Promise<any> {
+    const data = await this.request(`/api/s/${siteId}/rest/networkconf/${networkId}`, "GET");
+    return data?.data?.[0] || data;
+  }
+
   async getWlanDetail(siteId: string, wlanId: string): Promise<any> {
     const data = await this.request(`/api/s/${siteId}/rest/wlanconf/${wlanId}`, "GET");
+    return data?.data?.[0] || data;
+  }
+
+  async getDeviceDetail(siteId: string, deviceMac: string): Promise<any> {
+    const data = await this.request(`/api/s/${siteId}/stat/device/${deviceMac}`, "GET");
     return data?.data?.[0] || data;
   }
 

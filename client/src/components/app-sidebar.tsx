@@ -17,8 +17,8 @@ import { Button } from "@/components/ui/button";
 
 const mainItems = [
   { title: "Dashboard", url: "/admin", icon: Home },
-  { title: "Communities", url: "/admin/communities", icon: Building2 },
   { title: "Controllers", url: "/admin/controllers", icon: Network },
+  { title: "Communities", url: "/admin/communities", icon: Building2 },
   { title: "Tenants", url: "/admin/tenants", icon: Users },
 ];
 

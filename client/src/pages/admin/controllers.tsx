@@ -333,7 +333,7 @@ export default function ControllersPage() {
       const res = await fetch(`/api/networks/controller/${expandedCtrlId}?siteId=${encodeURIComponent(expandedSiteId)}`, { credentials: "include" });
       return res.json();
     },
-    enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "networks",
+    enabled: !!expandedCtrlId && !!expandedSiteId && (siteTab === "networks" || siteTab === "wifi"),
   });
 
   const { data: importedDevices, isLoading: devicesLoading } = useQuery<Device[]>({

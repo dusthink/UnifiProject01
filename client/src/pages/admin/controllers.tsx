@@ -2201,6 +2201,12 @@ export default function ControllersPage() {
                   <div className="text-2xl font-bold text-green-600" data-testid="text-bulk-wifi-succeeded">{bulkWifiResult.succeeded}</div>
                   <div className="text-xs text-muted-foreground">Succeeded</div>
                 </div>
+                {bulkWifiResult.skipped > 0 && (
+                  <div className="text-center flex-1">
+                    <div className="text-2xl font-bold text-yellow-600" data-testid="text-bulk-wifi-skipped">{bulkWifiResult.skipped}</div>
+                    <div className="text-xs text-muted-foreground">Skipped</div>
+                  </div>
+                )}
                 {bulkWifiResult.failed > 0 && (
                   <div className="text-center flex-1">
                     <div className="text-2xl font-bold text-destructive">{bulkWifiResult.failed}</div>
@@ -2210,8 +2216,11 @@ export default function ControllersPage() {
               </div>
               {bulkWifiResult.results.filter((r: any) => !r.success).length > 0 && (
                 <ScrollArea className="h-[120px] border rounded-md p-3">
-                  {bulkWifiResult.results.filter((r: any) => !r.success).map((r: any, i: number) => (
-                    <p key={i} className="text-xs text-destructive mb-1">{r.networkName}: {r.error}</p>
+                  {bulkWifiResult.results.filter((r: any) => r.skipped).map((r: any, i: number) => (
+                    <p key={i} className="text-xs text-yellow-600 mb-1">{r.networkName}: {r.error}</p>
+                  ))}
+                  {bulkWifiResult.results.filter((r: any) => !r.success && !r.skipped).map((r: any, i: number) => (
+                    <p key={`f${i}`} className="text-xs text-destructive mb-1">{r.networkName}: {r.error}</p>
                   ))}
                 </ScrollArea>
               )}

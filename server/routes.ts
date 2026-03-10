@@ -1065,6 +1065,7 @@ export async function registerRoutes(
       const results: Array<{ networkId: string; networkName: string; success: boolean; error?: string; generatedPassword?: string; ssidName?: string; skipped?: boolean }> = [];
 
       const existingWifiNetworks = await storage.getWifiNetworksByControllerAndSite(controllerId, siteId);
+      const existingWifiNames = new Set(existingWifiNetworks.map(wn => wn.name.toLowerCase()));
       const existingWifiByVlan = new Map<number, string[]>();
       for (const wn of existingWifiNetworks) {
         if (wn.vlanId != null) {
@@ -1081,6 +1082,12 @@ export async function registerRoutes(
         const namingConvention = cfg.namingConvention || null;
 
         if (isPpsk) {
+          if (existingWifiNames.has(cfg.name.toLowerCase())) {
+            selectedNetworks.forEach(n => results.push({
+              networkId: n.id, networkName: n.name, success: false, skipped: true,
+              error: `SSID "${cfg.name}" already exists on this site`,
+            }));
+          } else {
           const ppskKeys = selectedNetworks.map(n => ({
             password: randomBytes(8).toString('base64url'),
             vlanId: n.vlanId,
@@ -1119,6 +1126,7 @@ export async function registerRoutes(
           } catch (err: any) {
             selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: err.message }));
           }
+          }
         } else if (autoPassword && namingConvention) {
           for (const net of selectedNetworks) {
             try {
@@ -1127,6 +1135,11 @@ export async function registerRoutes(
                 ssidName = `${cfg.prefix || "WiFi"}-${net.vlanId}`;
               } else if (namingConvention === "custom") {
                 ssidName = `${cfg.prefix || "WiFi"}-${net.name}`;
+              }
+              const vlanNames = existingWifiByVlan.get(net.vlanId!) || [];
+              if (vlanNames.includes(ssidName.toLowerCase())) {
+                results.push({ networkId: net.id, networkName: net.name, success: false, skipped: true, ssidName, error: `SSID "${ssidName}" already exists on VLAN ${net.vlanId}` });
+                continue;
               }
               const password = randomBytes(8).toString('base64url');
               const result = await client.createWlan(siteId, {
@@ -1164,6 +1177,11 @@ export async function registerRoutes(
         } else {
           for (const net of selectedNetworks) {
             try {
+              const vlanNames = existingWifiByVlan.get(net.vlanId!) || [];
+              if (vlanNames.includes((cfg.name || "").toLowerCase())) {
+                results.push({ networkId: net.id, networkName: net.name, success: false, skipped: true, error: `SSID "${cfg.name}" already exists on VLAN ${net.vlanId}` });
+                continue;
+              }
               const result = await client.createWlan(siteId, {
                 name: cfg.name,
                 password: cfg.password || undefined,
@@ -1285,8 +1303,9 @@ export async function registerRoutes(
       }
 
       const succeeded = results.filter(r => r.success).length;
-      const failed = results.filter(r => !r.success).length;
-      res.json({ total: results.length, succeeded, failed, results });
+      const skipped = results.filter(r => r.skipped).length;
+      const failed = results.filter(r => !r.success && !r.skipped).length;
+      res.json({ total: results.length, succeeded, skipped, failed, results });
     } catch (err: any) {
       res.status(500).json({ message: `Bulk WiFi operation failed: ${err.message}` });
     }

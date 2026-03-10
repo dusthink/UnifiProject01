@@ -1051,7 +1051,7 @@ export async function registerRoutes(
         if (!networkIds.includes(n.id) || n.siteId !== siteId) return false;
         const purpose = (n.purpose || "").toLowerCase();
         const name = (n.name || "").trim().toLowerCase();
-        if (purpose === "wan" || purpose === "internet" || name === "internet") return false;
+        if (purpose === "wan" || purpose === "internet" || purpose === "remote-user-vpn" || name === "internet") return false;
         return true;
       });
       if (selectedNetworks.length === 0) return res.status(400).json({ message: "No valid networks selected for this site" });
@@ -1082,21 +1082,34 @@ export async function registerRoutes(
               error: `SSID "${cfg.name}" already exists on this site`,
             }));
           } else {
-          const ppskKeys = selectedNetworks.map(n => ({
-            password: randomBytes(8).toString('base64url'),
-            vlanId: n.vlanId,
-            description: n.name,
-          }));
-          const primaryNetwork = selectedNetworks[0];
+          const validNetworks = selectedNetworks.filter(n => {
+            if (!n.vlanId || n.vlanId === 0) {
+              results.push({ networkId: n.id, networkName: n.name, success: false, error: "Network has no VLAN assigned (required for PPSK)" });
+              return false;
+            }
+            return true;
+          });
+          if (validNetworks.length > 0) {
+          const usedPasswords = new Set<string>();
+          const ppskKeys = validNetworks.map(n => {
+            let pw: string;
+            do { pw = randomBytes(12).toString('base64url'); } while (usedPasswords.has(pw));
+            usedPasswords.add(pw);
+            return {
+              password: pw,
+              vlanId: n.vlanId,
+              networkConfId: n.unifiNetworkId || "",
+              description: n.name,
+            };
+          });
+          const primaryNetwork = validNetworks[0];
           try {
-            console.log("[bulk-wifi] Creating PPSK WLAN:", { name: cfg.name, networkId: primaryNetwork.unifiNetworkId, keysCount: ppskKeys.length });
             const result = await client.createPpskWlan(siteId, cfg.name, primaryNetwork.unifiNetworkId || "", ppskKeys, {
               isGuest: cfg.isGuest,
               hideSsid: cfg.hideSsid,
               wlanBand: cfg.wlanBand,
             });
             const wlanId = result?.data?.[0]?._id;
-            console.log("[bulk-wifi] PPSK result: wlanId=", wlanId, "meta=", result?.meta);
             if (wlanId) {
               await storage.createWifiNetwork({
                 controllerId,
@@ -1112,16 +1125,16 @@ export async function registerRoutes(
                 siteId,
                 isManaged: true,
               });
-              selectedNetworks.forEach((n, i) => results.push({
+              validNetworks.forEach((n, i) => results.push({
                 networkId: n.id, networkName: n.name, success: true,
                 generatedPassword: ppskKeys[i].password, ssidName: cfg.name,
               }));
             } else {
-              selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: "No WLAN ID returned" }));
+              validNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: "No WLAN ID returned" }));
             }
           } catch (err: any) {
-            console.error("[bulk-wifi] PPSK creation error:", err.message);
-            selectedNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: err.message }));
+            validNetworks.forEach(n => results.push({ networkId: n.id, networkName: n.name, success: false, error: err.message }));
+          }
           }
           }
         } else if (autoPassword && namingConvention) {
@@ -1231,14 +1244,17 @@ export async function registerRoutes(
             const wlanDetail = await client.getWlanDetail(siteId, existingWifi.unifiWlanId);
             const existingKeys: any[] = wlanDetail?.private_preshared_keys || [];
             const existingVlans = new Set(existingKeys.map((k: any) => String(k.vlan || k.vlanId)));
-            const newKeys: Array<{ key: string; vlan: number | null; description: string }> = [];
+            const newKeys: Array<{ password: string; vlan: string; description: string }> = [];
             const skippedNetworks: string[] = [];
             for (const n of selectedNetworks) {
-              if (existingVlans.has(String(n.vlanId))) {
+              if (!n.vlanId || n.vlanId === 0) {
+                results.push({ networkId: n.id, networkName: n.name, success: false, error: "Network has no VLAN assigned (required for PPSK)" });
+                skippedNetworks.push(n.id);
+              } else if (existingVlans.has(String(n.vlanId))) {
                 skippedNetworks.push(n.id);
                 results.push({ networkId: n.id, networkName: n.name, success: false, error: "VLAN already has a PPSK key on this SSID" });
               } else {
-                newKeys.push({ key: randomBytes(8).toString('base64url'), vlan: n.vlanId, description: n.name });
+                newKeys.push({ password: randomBytes(8).toString('base64url'), vlan: String(n.vlanId), description: n.name });
               }
             }
             if (newKeys.length > 0) {
@@ -1249,7 +1265,7 @@ export async function registerRoutes(
                 if (!skippedNetworks.includes(n.id)) {
                   results.push({
                     networkId: n.id, networkName: n.name, success: true,
-                    generatedPassword: newKeys[keyIdx].key, ssidName: existingWifi.name,
+                    generatedPassword: newKeys[keyIdx].password, ssidName: existingWifi.name,
                   });
                   keyIdx++;
                 }

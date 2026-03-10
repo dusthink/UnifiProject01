@@ -2523,8 +2523,9 @@ export default function ControllersPage() {
                     const nets = (siteNetworks || []).filter((n: any) => {
                       const name = (n.name || "").trim().toLowerCase();
                       const purpose = (n.purpose || "").toLowerCase();
-                      if (purpose === "wan" || purpose === "internet") return false;
+                      if (purpose === "wan" || purpose === "internet" || purpose === "remote-user-vpn") return false;
                       if (/^internet$/i.test(name)) return false;
+                      if (bulkWifiTab === "ppsk" && (!n.vlanId || n.vlanId === 0)) return false;
                       return true;
                     });
                     if (nets.length === 0) {

@@ -9,11 +9,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Plus, Trash2, Wifi, Shield, CheckCircle2, XCircle, Zap, Settings, Monitor, Radio, ArrowLeftRight, Router } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Wifi, CheckCircle2, XCircle, Zap, Settings, Monitor, Radio, ArrowLeftRight, Router } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Building, Unit, Device, UnitDevicePort, User, Community, Network } from "@shared/schema";
+import type { Building, Unit, Device, UnitDevicePort, User, Community, Network, WifiNetwork } from "@shared/schema";
 
 const deviceTypeLabels: Record<string, string> = {
   switch: "Switch",
@@ -54,11 +54,12 @@ function DeviceImage({ iconId, deviceType, size = 28 }: { iconId?: string | null
 
 type SafeUser = Omit<User, "password">;
 
-function UnitRow({ unit, devices, tenants, networks, onDelete, onProvision, onDeprovision, onEdit }: {
+function UnitRow({ unit, devices, tenants, networks, wifiNetworks, onDelete, onProvision, onDeprovision, onEdit }: {
   unit: Unit;
   devices: Device[];
   tenants: SafeUser[];
   networks: Network[];
+  wifiNetworks: WifiNetwork[];
   onDelete: (id: string) => void;
   onProvision: (id: string) => void;
   onDeprovision: (id: string) => void;
@@ -67,6 +68,7 @@ function UnitRow({ unit, devices, tenants, networks, onDelete, onProvision, onDe
   const tenant = unit.tenantId ? tenants.find(t => t.id === unit.tenantId) : null;
   const displayTenant = tenant ? (tenant.displayName || tenant.username) : unit.tenantName;
   const network = unit.networkId ? networks.find(n => n.id === unit.networkId) : null;
+  const wifiNet = unit.unifiWlanId ? wifiNetworks.find(w => w.unifiWlanId === unit.unifiWlanId) : null;
 
   return (
     <TableRow data-testid={`row-unit-${unit.id}`}>
@@ -81,16 +83,17 @@ function UnitRow({ unit, devices, tenants, networks, onDelete, onProvision, onDe
         )}
       </TableCell>
       <TableCell>
-        <div className="flex items-center gap-1.5">
-          {unit.wifiMode === "ppsk" ? (
-            <Shield className="h-3.5 w-3.5 text-chart-3" />
-          ) : (
+        {wifiNet ? (
+          <div className="flex items-center gap-1.5">
             <Wifi className="h-3.5 w-3.5 text-primary" />
-          )}
-          <span className="text-sm uppercase">{unit.wifiMode || "ppsk"}</span>
-        </div>
+            <span className="text-sm truncate max-w-[120px]">{wifiNet.name}</span>
+          </div>
+        ) : unit.wifiSsid ? (
+          <span className="text-sm truncate max-w-[120px]">{unit.wifiSsid}</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">Not set</span>
+        )}
       </TableCell>
-      <TableCell className="max-w-[120px] truncate">{unit.wifiSsid || "-"}</TableCell>
       <TableCell className="max-w-[100px] truncate" data-testid={`text-tenant-${unit.id}`}>{displayTenant || "-"}</TableCell>
       <TableCell>
         {unit.isProvisioned ? (
@@ -137,9 +140,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
 
   const [unitNumber, setUnitNumber] = useState("");
   const [selectedNetworkId, setSelectedNetworkId] = useState("");
-  const [wifiMode, setWifiMode] = useState("ppsk");
-  const [wifiSsid, setWifiSsid] = useState("");
-  const [wifiPassword, setWifiPassword] = useState("");
+  const [selectedWifiNetworkId, setSelectedWifiNetworkId] = useState("");
   const [selectedTenantId, setSelectedTenantId] = useState("");
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
 
@@ -179,6 +180,17 @@ export default function BuildingDetailPage({ id }: { id: string }) {
       if (!community?.controllerId) return [];
       const siteId = community.unifiSiteId || "default";
       const res = await fetch(`/api/networks/controller/${community.controllerId}?siteId=${encodeURIComponent(siteId)}`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!community?.controllerId,
+  });
+
+  const { data: controllerWifiNetworks } = useQuery<WifiNetwork[]>({
+    queryKey: ["/api/wifi-networks/controller", community?.controllerId, "site", community?.unifiSiteId || "default"],
+    queryFn: async () => {
+      if (!community?.controllerId) return [];
+      const siteId = community.unifiSiteId || "default";
+      const res = await fetch(`/api/wifi-networks/controller/${community.controllerId}?siteId=${encodeURIComponent(siteId)}`, { credentials: "include" });
       return res.json();
     },
     enabled: !!community?.controllerId,
@@ -287,9 +299,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
   const resetForm = () => {
     setUnitNumber("");
     setSelectedNetworkId("");
-    setWifiMode("ppsk");
-    setWifiSsid("");
-    setWifiPassword("");
+    setSelectedWifiNetworkId("");
     setSelectedTenantId("");
     setSelectedDeviceIds([]);
   };
@@ -298,9 +308,8 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     setEditUnit(unit);
     setUnitNumber(unit.unitNumber);
     setSelectedNetworkId(unit.networkId || "");
-    setWifiMode(unit.wifiMode || "ppsk");
-    setWifiSsid(unit.wifiSsid || "");
-    setWifiPassword(unit.wifiPassword || "");
+    const matchedWifi = unit.unifiWlanId ? controllerWifiNetworks?.find(w => w.unifiWlanId === unit.unifiWlanId) : null;
+    setSelectedWifiNetworkId(matchedWifi?.id || "");
     setSelectedTenantId(unit.tenantId || "");
     const assignments = allPortAssignments?.[unit.id] || [];
     setSelectedDeviceIds(assignments.map(a => a.deviceId));
@@ -329,17 +338,17 @@ export default function BuildingDetailPage({ id }: { id: string }) {
 
   const unitFormFields = (
     <>
+      <div className="space-y-2">
+        <Label>Name <span className="text-destructive">*</span></Label>
+        <Input value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder="e.g., Unit 101" required data-testid="input-unit-number" />
+      </div>
       <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>Unit Number</Label>
-          <Input value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder="e.g., 101" required data-testid="input-unit-number" />
-        </div>
         <div className="space-y-2">
           <Label>Network</Label>
           {controllerNetworks && controllerNetworks.length > 0 ? (
             <Select value={selectedNetworkId} onValueChange={setSelectedNetworkId}>
               <SelectTrigger data-testid="select-network">
-                <SelectValue placeholder="Select a network" />
+                <SelectValue placeholder="No network assigned" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">No network assigned</SelectItem>
@@ -352,31 +361,31 @@ export default function BuildingDetailPage({ id }: { id: string }) {
             </Select>
           ) : (
             <p className="text-xs text-muted-foreground pt-2">
-              {community?.controllerId ? "No networks configured on controller. Add networks in the Controllers page." : "No controller assigned to this community."}
+              {community?.controllerId ? "No networks available." : "No controller assigned."}
             </p>
           )}
         </div>
-      </div>
-      <div className="space-y-2">
-        <Label>WiFi Mode</Label>
-        <Select value={wifiMode} onValueChange={setWifiMode}>
-          <SelectTrigger data-testid="select-wifi-mode">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ppsk">PPSK (Private Pre-Shared Key)</SelectItem>
-            <SelectItem value="individual">Individual SSID</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>WiFi SSID</Label>
-          <Input value={wifiSsid} onChange={(e) => setWifiSsid(e.target.value)} placeholder={wifiMode === "ppsk" ? "Shared SSID" : "Unit-101-WiFi"} data-testid="input-wifi-ssid" />
-        </div>
-        <div className="space-y-2">
-          <Label>WiFi Password</Label>
-          <Input value={wifiPassword} onChange={(e) => setWifiPassword(e.target.value)} placeholder="Min 8 characters" data-testid="input-wifi-password" />
+          <Label>WiFi Network</Label>
+          {controllerWifiNetworks && controllerWifiNetworks.length > 0 ? (
+            <Select value={selectedWifiNetworkId} onValueChange={setSelectedWifiNetworkId}>
+              <SelectTrigger data-testid="select-wifi-network">
+                <SelectValue placeholder="No WiFi assigned" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No WiFi assigned</SelectItem>
+                {controllerWifiNetworks.map((wifi) => (
+                  <SelectItem key={wifi.id} value={wifi.id} data-testid={`option-wifi-${wifi.id}`}>
+                    {wifi.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <p className="text-xs text-muted-foreground pt-2">
+              {community?.controllerId ? "No WiFi networks available." : "No controller assigned."}
+            </p>
+          )}
         </div>
       </div>
       <div className="space-y-2">
@@ -466,14 +475,15 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                 e.preventDefault();
                 const netId = selectedNetworkId && selectedNetworkId !== "none" ? selectedNetworkId : null;
                 const selectedNet = netId ? controllerNetworks?.find(n => n.id === netId) : null;
+                const wifiNetId = selectedWifiNetworkId && selectedWifiNetworkId !== "none" ? selectedWifiNetworkId : null;
+                const selectedWifi = wifiNetId ? controllerWifiNetworks?.find(w => w.id === wifiNetId) : null;
                 createMutation.mutate({
                   buildingId: id,
                   unitNumber,
                   networkId: netId,
                   vlanId: selectedNet?.vlanId ?? null,
-                  wifiMode,
-                  wifiSsid: wifiSsid || null,
-                  wifiPassword: wifiPassword || null,
+                  unifiWlanId: selectedWifi?.unifiWlanId ?? null,
+                  wifiSsid: selectedWifi?.name ?? null,
                   tenantId: selectedTenantId && selectedTenantId !== "none" ? selectedTenantId : null,
                 });
               }}
@@ -499,15 +509,16 @@ export default function BuildingDetailPage({ id }: { id: string }) {
               if (!editUnit) return;
               const netId = selectedNetworkId && selectedNetworkId !== "none" ? selectedNetworkId : null;
               const selectedNet = netId ? controllerNetworks?.find(n => n.id === netId) : null;
+              const wifiNetId = selectedWifiNetworkId && selectedWifiNetworkId !== "none" ? selectedWifiNetworkId : null;
+              const selectedWifi = wifiNetId ? controllerWifiNetworks?.find(w => w.id === wifiNetId) : null;
               updateMutation.mutate({
                 unitId: editUnit.id,
                 data: {
                   unitNumber,
                   networkId: netId,
                   vlanId: selectedNet?.vlanId ?? null,
-                  wifiMode,
-                  wifiSsid: wifiSsid || null,
-                  wifiPassword: wifiPassword || null,
+                  unifiWlanId: selectedWifi?.unifiWlanId ?? null,
+                  wifiSsid: selectedWifi?.name ?? null,
                   tenantId: selectedTenantId && selectedTenantId !== "none" ? selectedTenantId : null,
                 },
                 deviceIds: selectedDeviceIds,
@@ -536,10 +547,9 @@ export default function BuildingDetailPage({ id }: { id: string }) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Unit</TableHead>
+                    <TableHead>Name</TableHead>
                     <TableHead>Network</TableHead>
-                    <TableHead>WiFi Mode</TableHead>
-                    <TableHead>SSID</TableHead>
+                    <TableHead>WiFi Network</TableHead>
                     <TableHead>Tenant</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
@@ -553,6 +563,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                       devices={devices || []}
                       tenants={tenants || []}
                       networks={controllerNetworks || []}
+                      wifiNetworks={controllerWifiNetworks || []}
                       onDelete={(uid) => { if (confirm("Delete this unit?")) deleteMutation.mutate(uid); }}
                       onProvision={(uid) => provisionMutation.mutate(uid)}
                       onDeprovision={(uid) => deprovisionMutation.mutate(uid)}

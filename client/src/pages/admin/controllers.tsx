@@ -271,6 +271,7 @@ const wifiDefaults = {
   rateLimitEnabled: false, rateLimitUpload: 0, rateLimitDownload: 0,
   scheduleEnabled: false,
   apGroupMode: "all" as string, apGroupIds: [] as string[],
+  broadcastApMacs: [] as string[],
 };
 
 interface BackupEntry {
@@ -1178,14 +1179,21 @@ function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation, controllerId,
             )}
 
             <div>
-              <Label>AP Group</Label>
+              <Label>Broadcast On</Label>
               <Select value={editWifi.apGroupMode || "all"} onValueChange={(v) => {
-                setEditWifi({ ...editWifi, apGroupMode: v, ...(v === "all" ? { apGroupIds: [] } : {}) });
+                setEditWifi({
+                  ...editWifi,
+                  apGroupMode: v,
+                  ...(v === "all" ? { apGroupIds: [], broadcastApMacs: [] } : {}),
+                  ...(v === "custom" ? { broadcastApMacs: [] } : {}),
+                  ...(v === "specific" ? { apGroupIds: [] } : {}),
+                });
               }}>
                 <SelectTrigger data-testid="select-edit-wifi-ap-group-mode"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All APs (Default)</SelectItem>
-                  <SelectItem value="custom">Select AP Group</SelectItem>
+                  <SelectItem value="custom">AP Group</SelectItem>
+                  <SelectItem value="specific">Specific APs</SelectItem>
                 </SelectContent>
               </Select>
               {editWifi.apGroupMode === "custom" && apGroups && apGroups.length > 0 && (
@@ -1205,6 +1213,31 @@ function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation, controllerId,
                   ))}
                 </div>
               )}
+              {editWifi.apGroupMode === "specific" && (() => {
+                const allApMacs = (apGroups || []).flatMap((g: any) => (g.device_macs || []).map((mac: string) => ({ mac, groupName: g.name })));
+                const uniqueAps = Array.from(new Map(allApMacs.map((a: any) => [a.mac, a])).values());
+                return uniqueAps.length > 0 ? (
+                  <div className="border rounded-md max-h-36 overflow-y-auto mt-1">
+                    {uniqueAps.map((ap: any) => (
+                      <label key={ap.mac} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50 cursor-pointer border-b last:border-b-0" data-testid={`checkbox-edit-wifi-ap-${ap.mac}`}>
+                        <Checkbox
+                          checked={(editWifi.broadcastApMacs || []).includes(ap.mac)}
+                          onCheckedChange={(checked) => {
+                            const current = editWifi.broadcastApMacs || [];
+                            setEditWifi({ ...editWifi, broadcastApMacs: checked ? [...current, ap.mac] : current.filter((m: string) => m !== ap.mac) });
+                          }}
+                        />
+                        <Signal className="h-3.5 w-3.5 text-muted-foreground" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium">{ap.mac}</span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">No access points found in AP groups.</p>
+                );
+              })()}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -1419,8 +1452,9 @@ function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation, controllerId,
                     wlanBand: editWifi.wlanBand,
                     hideSsid: editWifi.hideSsid || false,
                     pmfMode: editWifi.pmfMode,
-                    apGroupMode: editWifi.apGroupMode || "all",
+                    apGroupMode: editWifi.apGroupMode === "specific" ? "custom" : (editWifi.apGroupMode || "all"),
                     apGroupIds: editWifi.apGroupMode === "custom" ? (editWifi.apGroupIds || []) : [],
+                    broadcastApMacs: editWifi.apGroupMode === "specific" ? (editWifi.broadcastApMacs || []) : undefined,
                   };
                   if (editWifi.newPassword && editWifi.newPassword !== editWifi.currentPassword) {
                     data.password = editWifi.newPassword;
@@ -1795,7 +1829,7 @@ export default function ControllersPage() {
       const res = await fetch(`/api/controllers/${expandedCtrlId}/devices/${encodeURIComponent(expandedSiteId)}`, { credentials: "include" });
       return res.json();
     },
-    enabled: !!expandedCtrlId && !!expandedSiteId && (siteTab === "apgroups" || siteTab === "devices"),
+    enabled: !!expandedCtrlId && !!expandedSiteId && (siteTab === "apgroups" || siteTab === "devices" || !!addWifiOpen),
   });
 
   const addMutation = useMutation({
@@ -2317,15 +2351,18 @@ export default function ControllersPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>AP Group</Label>
+              <Label>Broadcast On</Label>
               <Select value={wifi.apGroupMode} onValueChange={(v) => {
                 wf("apGroupMode", v);
-                if (v === "all") wf("apGroupIds", []);
+                if (v === "all") { wf("apGroupIds", []); wf("broadcastApMacs", []); }
+                if (v === "custom") { wf("broadcastApMacs", []); }
+                if (v === "specific") { wf("apGroupIds", []); }
               }}>
                 <SelectTrigger data-testid="select-wifi-ap-group-mode"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All APs (Default)</SelectItem>
-                  <SelectItem value="custom">Select AP Group</SelectItem>
+                  <SelectItem value="custom">AP Group</SelectItem>
+                  <SelectItem value="specific">Specific APs</SelectItem>
                 </SelectContent>
               </Select>
               {wifi.apGroupMode === "custom" && apGroups && apGroups.length > 0 && (
@@ -2348,6 +2385,32 @@ export default function ControllersPage() {
               {wifi.apGroupMode === "custom" && (!apGroups || apGroups.length === 0) && (
                 <p className="text-xs text-muted-foreground">No AP groups found. Create one from the AP Groups tab first.</p>
               )}
+              {wifi.apGroupMode === "specific" && (() => {
+                const aps = (liveDevices || []).filter((d: any) => d.type === "uap");
+                return aps.length > 0 ? (
+                  <div className="border rounded-md max-h-44 overflow-y-auto mt-1">
+                    {aps.map((dev: any) => (
+                      <label key={dev.mac} className="flex items-center gap-2 px-3 py-2 hover:bg-muted/50 cursor-pointer border-b last:border-b-0" data-testid={`checkbox-wifi-ap-${dev.mac}`}>
+                        <Checkbox
+                          checked={(wifi.broadcastApMacs || []).includes(dev.mac)}
+                          onCheckedChange={(checked) => {
+                            const current = wifi.broadcastApMacs || [];
+                            wf("broadcastApMacs", checked ? [...current, dev.mac] : current.filter((m: string) => m !== dev.mac));
+                          }}
+                        />
+                        <Signal className="h-3.5 w-3.5 text-muted-foreground" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium block truncate">{dev.name || dev.mac}</span>
+                          <span className="text-[10px] text-muted-foreground">{dev.mac} · {dev.model || "AP"}</span>
+                        </div>
+                        {dev.state === 1 && <Badge variant="outline" className="text-[10px] text-green-600 border-green-200 shrink-0">Online</Badge>}
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No access points found on this site.</p>
+                );
+              })()}
             </div>
 
             <div className="flex items-center gap-4">

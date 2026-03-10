@@ -313,6 +313,7 @@ export class UnifiClient {
     scheduleEnabled?: boolean;
     apGroupIds?: string[];
     apGroupMode?: string;
+    broadcastApMacs?: string[];
   }): Promise<any> {
     const defaults = await this.getWlanDefaults(siteId);
 
@@ -323,7 +324,15 @@ export class UnifiClient {
       enabled: opts.enabled ?? true,
       ap_group_mode: opts.apGroupMode || "all",
     };
-    if (opts.apGroupIds && opts.apGroupIds.length > 0) {
+    if (opts.broadcastApMacs && opts.broadcastApMacs.length > 0) {
+      const groupName = `SSID-${opts.name}-APs`;
+      const group = await this.createApGroup(siteId, groupName, opts.broadcastApMacs);
+      const groupId = group?.data?.[0]?._id || group?._id;
+      if (groupId) {
+        body.ap_group_ids = [groupId];
+        body.ap_group_mode = "custom";
+      }
+    } else if (opts.apGroupIds && opts.apGroupIds.length > 0) {
       body.ap_group_ids = opts.apGroupIds;
       body.ap_group_mode = opts.apGroupMode || "custom";
     } else if (defaults.apGroupIds.length > 0) {
@@ -413,7 +422,15 @@ export class UnifiClient {
         description: k.description,
       })),
     };
-    if (advancedOpts?.apGroupIds && advancedOpts.apGroupIds.length > 0) {
+    if (advancedOpts?.broadcastApMacs && advancedOpts.broadcastApMacs.length > 0) {
+      const groupName = `SSID-${name}-APs`;
+      const group = await this.createApGroup(siteId, groupName, advancedOpts.broadcastApMacs);
+      const groupId = group?.data?.[0]?._id || group?._id;
+      if (groupId) {
+        body.ap_group_ids = [groupId];
+        body.ap_group_mode = "custom";
+      }
+    } else if (advancedOpts?.apGroupIds && advancedOpts.apGroupIds.length > 0) {
       body.ap_group_ids = advancedOpts.apGroupIds;
       body.ap_group_mode = advancedOpts.apGroupMode || "custom";
     } else if (defaults.apGroupIds.length > 0) {

@@ -1305,6 +1305,7 @@ export async function registerRoutes(
               dtimNg: d.dtimNg,
               apGroupIds: d.apGroupIds,
               apGroupMode: d.apGroupMode,
+              broadcastApMacs: d.broadcastApMacs,
             }
           );
         } else {
@@ -1341,6 +1342,7 @@ export async function registerRoutes(
             scheduleEnabled: d.scheduleEnabled,
             apGroupIds: d.apGroupIds,
             apGroupMode: d.apGroupMode,
+            broadcastApMacs: d.broadcastApMacs,
           });
         }
         unifiWlanId = result?.data?.[0]?._id || null;
@@ -1664,7 +1666,7 @@ export async function registerRoutes(
       if (!existing.isManaged) return res.status(403).json({ message: "Cannot edit controller-managed WiFi networks." });
 
       const { name, password, isGuest, enabled, security, wpaMode, wlanBand,
-        hideSsid, pmfMode, apGroupMode, apGroupIds,
+        hideSsid, pmfMode, apGroupMode, apGroupIds, broadcastApMacs,
         fastRoamingEnabled, bssTransition, uapsdEnabled,
         l2Isolation, proxyArp, groupRekey,
         dtimMode, dtimNa, dtimNg,
@@ -1690,7 +1692,20 @@ export async function registerRoutes(
       if (hideSsid !== undefined) { unifiUpdates.hide_ssid = hideSsid; }
       if (pmfMode !== undefined) { unifiUpdates.pmf_mode = pmfMode; }
 
-      if (apGroupMode !== undefined) {
+      if (broadcastApMacs && Array.isArray(broadcastApMacs) && broadcastApMacs.length > 0 && existing.unifiWlanId) {
+        const controller = await storage.getController(existing.controllerId);
+        if (controller?.isVerified) {
+          const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+          const wlanName = name || existing.name || "WLAN";
+          const groupName = `SSID-${wlanName}-APs`;
+          const group = await client.createApGroup(existing.siteId || "default", groupName, broadcastApMacs);
+          const groupId = group?.data?.[0]?._id || group?._id;
+          if (groupId) {
+            unifiUpdates.ap_group_ids = [groupId];
+            unifiUpdates.ap_group_mode = "custom";
+          }
+        }
+      } else if (apGroupMode !== undefined) {
         unifiUpdates.ap_group_mode = apGroupMode;
         if (apGroupMode === "all") {
           unifiUpdates.ap_group_ids = [];

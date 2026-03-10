@@ -258,7 +258,7 @@ export default function CommunitiesPage() {
                     variant="ghost"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (confirm("Delete this community?")) deleteMutation.mutate(community.id);
+                      if (confirm("Are you sure you want to delete this community?\n\nThis will permanently remove all associated buildings, units, tenant assignments, device assignments, and network configurations. This action cannot be undone.")) deleteMutation.mutate(community.id);
                     }}
                     data-testid={`button-delete-community-${community.id}`}
                   >

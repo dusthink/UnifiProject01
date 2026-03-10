@@ -1642,6 +1642,7 @@ export default function ControllersPage() {
   const [networkDhcpEnabled, setNetworkDhcpEnabled] = useState(true);
   const [networkDhcpStart, setNetworkDhcpStart] = useState("");
   const [networkDhcpStop, setNetworkDhcpStop] = useState("");
+  const [networkIsolation, setNetworkIsolation] = useState(true);
 
   const [addWifiOpen, setAddWifiOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
   const [showWifiAdvanced, setShowWifiAdvanced] = useState(false);
@@ -1735,6 +1736,7 @@ export default function ControllersPage() {
   const [bulkPrefix, setBulkPrefix] = useState("VLAN-");
   const [bulkSubnetSize, setBulkSubnetSize] = useState("25");
   const [bulkDhcp, setBulkDhcp] = useState(true);
+  const [bulkIsolation, setBulkIsolation] = useState(true);
   const [bulkResult, setBulkResult] = useState<{ requested: number; total: number; succeeded: number; failed: number; skipped: number; errors: string[]; results: any[] } | null>(null);
   const [bulkCreating, setBulkCreating] = useState(false);
 
@@ -2013,6 +2015,7 @@ export default function ControllersPage() {
     setNetworkDhcpEnabled(true);
     setNetworkDhcpStart("");
     setNetworkDhcpStop("");
+    setNetworkIsolation(true);
   };
 
   const autoFillSubnet = (vlan: string) => {
@@ -2032,6 +2035,7 @@ export default function ControllersPage() {
     setBulkPrefix("VLAN-");
     setBulkSubnetSize("25");
     setBulkDhcp(true);
+    setBulkIsolation(true);
     setBulkResult(null);
     setBulkCreating(false);
   };
@@ -2078,6 +2082,7 @@ export default function ControllersPage() {
         namePrefix: bulkPrefix,
         subnetSize: bulkSubnetSize,
         dhcpEnabled: bulkDhcp,
+        networkIsolation: bulkIsolation,
       });
       const data = await res.json();
       setBulkResult(data);
@@ -2159,6 +2164,7 @@ export default function ControllersPage() {
                 dhcpEnabled: networkDhcpEnabled,
                 dhcpStart: networkDhcpStart || null,
                 dhcpStop: networkDhcpStop || null,
+                networkIsolation,
               });
             }}
             className="space-y-4"
@@ -2211,6 +2217,18 @@ export default function ControllersPage() {
                 data-testid="checkbox-dhcp-enabled"
               />
               <Label htmlFor="dhcp-enabled" className="cursor-pointer">Enable DHCP</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="network-isolation"
+                checked={networkIsolation}
+                onChange={(e) => setNetworkIsolation(e.target.checked)}
+                className="rounded"
+                data-testid="checkbox-network-isolation"
+              />
+              <Label htmlFor="network-isolation" className="cursor-pointer">Isolate Network</Label>
+              <span className="text-xs text-muted-foreground">(prevents inter-VLAN communication)</span>
             </div>
             {networkDhcpEnabled && (
               <div className="grid grid-cols-2 gap-4">
@@ -2713,6 +2731,18 @@ export default function ControllersPage() {
                 />
                 <Label htmlFor="bulk-dhcp" className="cursor-pointer">Enable DHCP on all networks</Label>
               </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="bulk-isolation"
+                  checked={bulkIsolation}
+                  onChange={(e) => setBulkIsolation(e.target.checked)}
+                  className="rounded"
+                  data-testid="checkbox-bulk-isolation"
+                />
+                <Label htmlFor="bulk-isolation" className="cursor-pointer">Isolate Networks</Label>
+                <span className="text-xs text-muted-foreground">(prevents inter-VLAN communication)</span>
+              </div>
 
               {bulkPreview.length > 0 && (
                 <div className="space-y-2">
@@ -3164,6 +3194,9 @@ export default function ControllersPage() {
                                                 <TableCell className="font-medium" data-testid={`text-network-name-${net.id}`}>
                                                   <div className="flex items-center gap-2">
                                                     {net.name}
+                                                    {net.networkIsolation && (
+                                                      <Shield className="h-3.5 w-3.5 text-green-600 dark:text-green-400" title="Network Isolated" data-testid={`icon-isolated-${net.id}`} />
+                                                    )}
                                                     {(net as any).missingFromController && (
                                                       <Badge variant="outline" className="text-xs text-red-600 border-red-300 dark:text-red-400 dark:border-red-700" data-testid={`badge-missing-${net.id}`}>
                                                         <AlertTriangle className="h-3 w-3 mr-1" />Missing from Controller

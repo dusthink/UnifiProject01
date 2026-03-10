@@ -746,11 +746,29 @@ export async function registerRoutes(
         if (!unifiNetworkId) {
           return res.status(500).json({ message: "Failed to create network on UniFi controller. The controller did not return a network ID." });
         }
+
+        let isolationCreated = false;
+        if ((parsed.data.networkIsolation ?? true) && unifiNetworkId) {
+          try {
+            const ruleIds = await client.createNetworkIsolationRules(siteId, unifiNetworkId, parsed.data.name);
+            isolationCreated = ruleIds.length >= 2;
+          } catch (e: any) {
+            console.warn(`[networks] Could not create isolation rules for ${parsed.data.name}: ${e.message}`);
+          }
+        }
+
+        const network = await storage.createNetwork({
+          ...parsed.data,
+          unifiNetworkId,
+          isManaged: true,
+          networkIsolation: isolationCreated,
+        });
+        return res.status(201).json(network);
       }
 
       const network = await storage.createNetwork({
         ...parsed.data,
-        unifiNetworkId,
+        unifiNetworkId: null,
         isManaged: true,
       });
       res.status(201).json(network);
@@ -761,7 +779,7 @@ export async function registerRoutes(
 
   app.post("/api/networks/bulk", requireAdmin, async (req, res) => {
     try {
-      const { controllerId, namePrefix, subnetSize, dhcpEnabled, siteId: reqSiteId } = req.body;
+      const { controllerId, namePrefix, subnetSize, dhcpEnabled, siteId: reqSiteId, networkIsolation } = req.body;
       const count = typeof req.body.count === "number" ? req.body.count : parseInt(req.body.count);
       const vlanStart = typeof req.body.vlanStart === "number" ? req.body.vlanStart : parseInt(req.body.vlanStart);
       if (!controllerId || !namePrefix || !subnetSize) {
@@ -856,6 +874,14 @@ export async function registerRoutes(
               results.push({ name: net.name, vlanId: net.vlanId, success: false, error: "Controller did not return a network ID" });
               continue;
             }
+
+            if ((networkIsolation ?? true) && unifiNetworkId) {
+              try {
+                await client.createNetworkIsolationRules(siteId, unifiNetworkId, net.name);
+              } catch (e: any) {
+                console.warn(`[networks] Could not create isolation rules for ${net.name}: ${e.message}`);
+              }
+            }
           }
 
           await storage.createNetwork({
@@ -863,6 +889,7 @@ export async function registerRoutes(
             ipSubnet: net.ipSubnet, dhcpEnabled: net.dhcpEnabled,
             dhcpStart: net.dhcpStart, dhcpStop: net.dhcpStop,
             unifiNetworkId, siteId, isManaged: true,
+            networkIsolation: networkIsolation ?? true,
           });
           results.push({ name: net.name, vlanId: net.vlanId, success: true });
         } catch (err: any) {
@@ -1169,6 +1196,13 @@ export async function registerRoutes(
       }
 
       if (client && network.unifiNetworkId) {
+        if (network.networkIsolation && network.unifiNetworkId) {
+          try {
+            await client.deleteNetworkIsolationRules(siteId, network.unifiNetworkId);
+          } catch (e: any) {
+            console.warn(`[networks] Could not delete isolation rules for ${network.name}: ${e.message}`);
+          }
+        }
         try {
           await client.deleteNetwork(siteId, network.unifiNetworkId);
         } catch (e: any) {

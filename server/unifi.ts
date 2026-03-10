@@ -244,7 +244,7 @@ export class UnifiClient {
     }
   }
 
-  async createNetwork(siteId: string, name: string, vlanId: number, purpose: string = "corporate", opts?: { ipSubnet?: string; dhcpEnabled?: boolean; dhcpStart?: string; dhcpStop?: string }): Promise<any> {
+  async createNetwork(siteId: string, name: string, vlanId: number, purpose: string = "corporate", opts?: { ipSubnet?: string; dhcpEnabled?: boolean; dhcpStart?: string; dhcpStop?: string; networkIsolation?: boolean }): Promise<any> {
     const oct2 = Math.floor(vlanId / 256);
     const oct3 = vlanId % 256;
     const body: Record<string, any> = {
@@ -270,6 +270,103 @@ export class UnifiClient {
 
   async deleteNetwork(siteId: string, networkId: string): Promise<any> {
     return this.request(`/api/s/${siteId}/rest/networkconf/${networkId}`, "DELETE");
+  }
+
+  async getFirewallRules(siteId: string): Promise<any[]> {
+    const data = await this.request(`/api/s/${siteId}/rest/firewallrule`, "GET");
+    return data?.data || [];
+  }
+
+  async createFirewallRule(siteId: string, rule: Record<string, any>): Promise<any> {
+    return this.request(`/api/s/${siteId}/rest/firewallrule`, "POST", rule);
+  }
+
+  async deleteFirewallRule(siteId: string, ruleId: string): Promise<any> {
+    return this.request(`/api/s/${siteId}/rest/firewallrule/${ruleId}`, "DELETE");
+  }
+
+  async createNetworkIsolationRules(siteId: string, networkId: string, networkName: string): Promise<string[]> {
+    const existingRules = await this.getFirewallRules(siteId);
+    const ruleIds: string[] = [];
+
+    const maxIdx = existingRules.reduce((max: number, r: any) => Math.max(max, r.rule_index || 0), 3999);
+
+    const ruleNameFrom = `Isolate_${networkId}_from`;
+    const ruleNameTo = `Isolate_${networkId}_to`;
+
+    const existingFrom = existingRules.find((r: any) => r.name === ruleNameFrom);
+    const existingTo = existingRules.find((r: any) => r.name === ruleNameTo);
+
+    if (existingFrom) {
+      ruleIds.push(existingFrom._id);
+    } else {
+      const result = await this.createFirewallRule(siteId, {
+        name: ruleNameFrom,
+        enabled: true,
+        ruleset: "LAN_IN",
+        rule_index: maxIdx + 1,
+        action: "drop",
+        protocol: "all",
+        src_firewallgroup_ids: [],
+        src_network_id: networkId,
+        src_network_type: "NETv4",
+        dst_firewallgroup_ids: [],
+        dst_network_type: "NETv4",
+        dst_address: "",
+        state_established: false,
+        state_invalid: false,
+        state_new: true,
+        state_related: false,
+        ipsec: "",
+        logging: false,
+      });
+      const id = result?.data?.[0]?._id || result?._id;
+      if (id) ruleIds.push(id);
+    }
+
+    if (existingTo) {
+      ruleIds.push(existingTo._id);
+    } else {
+      const result = await this.createFirewallRule(siteId, {
+        name: ruleNameTo,
+        enabled: true,
+        ruleset: "LAN_IN",
+        rule_index: maxIdx + 2,
+        action: "drop",
+        protocol: "all",
+        src_firewallgroup_ids: [],
+        src_network_type: "NETv4",
+        dst_firewallgroup_ids: [],
+        dst_network_id: networkId,
+        dst_network_type: "NETv4",
+        dst_address: "",
+        state_established: false,
+        state_invalid: false,
+        state_new: true,
+        state_related: false,
+        ipsec: "",
+        logging: false,
+      });
+      const id = result?.data?.[0]?._id || result?._id;
+      if (id) ruleIds.push(id);
+    }
+
+    return ruleIds;
+  }
+
+  async deleteNetworkIsolationRules(siteId: string, networkUnifiId: string): Promise<void> {
+    try {
+      const rules = await this.getFirewallRules(siteId);
+      const ruleNameFrom = `Isolate_${networkUnifiId}_from`;
+      const ruleNameTo = `Isolate_${networkUnifiId}_to`;
+      for (const rule of rules) {
+        if (rule.name === ruleNameFrom || rule.name === ruleNameTo) {
+          await this.deleteFirewallRule(siteId, rule._id);
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[unifi] Could not delete isolation rules: ${e.message}`);
+    }
   }
 
   async createWlan(siteId: string, opts: {

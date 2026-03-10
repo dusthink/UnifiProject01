@@ -1148,7 +1148,31 @@ export async function registerRoutes(
       const controller = await storage.getController(controllerId);
       if (!controller?.isVerified) return res.status(400).json({ message: "Controller not verified" });
       const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
-      await client.setPortProfile(siteId, device.unifiDeviceId, portIdx, nativeVlan);
+      await client.setPortProfile(siteId, device.unifiDeviceId, device.macAddress, portIdx, nativeVlan);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/devices/:id/set-port-vlans", requireAdmin, async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) return res.status(404).json({ message: "Device not found" });
+      const { controllerId, siteId = "default", ports } = req.body;
+      if (!controllerId || !Array.isArray(ports) || ports.length === 0) {
+        return res.status(400).json({ message: "controllerId and ports array are required" });
+      }
+      for (const p of ports) {
+        if (typeof p.portIdx !== "number" || typeof p.nativeVlan !== "number" || p.portIdx < 1 || p.nativeVlan < 1 || p.nativeVlan > 4094) {
+          return res.status(400).json({ message: "Each port must have a valid portIdx (>=1) and nativeVlan (1-4094)" });
+        }
+      }
+      if (!device.unifiDeviceId) return res.status(400).json({ message: "Device has no UniFi device ID" });
+      const controller = await storage.getController(controllerId);
+      if (!controller?.isVerified) return res.status(400).json({ message: "Controller not verified" });
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      await client.setPortProfiles(siteId, device.unifiDeviceId, device.macAddress, ports.map((p: any) => ({ portIdx: p.portIdx, nativeVlan: p.nativeVlan })));
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -2193,7 +2217,7 @@ export async function registerRoutes(
       for (const assignment of portAssignments) {
         const device = await storage.getDevice(assignment.deviceId);
         if (device?.unifiDeviceId) {
-          await client.setPortProfile(siteId, device.unifiDeviceId, assignment.portNumber, vlanId);
+          await client.setPortProfile(siteId, device.unifiDeviceId, device.macAddress, assignment.portNumber, vlanId);
         }
       }
 

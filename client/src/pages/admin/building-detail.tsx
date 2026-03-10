@@ -56,14 +56,14 @@ function DeviceImage({ iconId, deviceType, size = 28 }: { iconId?: string | null
   );
 }
 
-function SwitchPortDiagram({ portTable, portOverrides, networks, unitVlanId, selectedPort, onSelectPort, assigningPort }: {
+function SwitchPortDiagram({ portTable, portOverrides, networks, unitVlanId, selectedPorts, onTogglePort, assigningPorts }: {
   portTable: any[];
   portOverrides: any[];
   networks: any[];
   unitVlanId: number | null;
-  selectedPort: number | null;
-  onSelectPort: (portIdx: number | null) => void;
-  assigningPort: boolean;
+  selectedPorts: Set<number>;
+  onTogglePort: (portIdx: number) => void;
+  assigningPorts: boolean;
 }) {
   const overrideMap = new Map<number, any>();
   portOverrides.forEach((po: any) => overrideMap.set(po.port_idx, po));
@@ -88,7 +88,7 @@ function SwitchPortDiagram({ portTable, portOverrides, networks, unitVlanId, sel
           const speed = port.speed || 0;
           const isCustom = override?.forward === "customize";
           const poeEnabled = override ? override.poe_mode !== "off" : port.poe_enable;
-          const isSelected = selectedPort === port.port_idx;
+          const isSelected = selectedPorts.has(port.port_idx);
           const isUnitVlan = unitVlanId != null && nativeVlan === unitVlanId;
           const isUplink = port.is_uplink === true;
 
@@ -111,8 +111,8 @@ function SwitchPortDiagram({ portTable, portOverrides, networks, unitVlanId, sel
                     className={`relative flex flex-col items-center justify-center w-12 h-14 rounded border text-center transition-colors ${isUplink ? "cursor-default opacity-60" : "cursor-pointer hover:ring-1 hover:ring-primary/30"} ${bgColor}`}
                     data-testid={`port-${port.port_idx}`}
                     onClick={() => {
-                      if (isUplink) return;
-                      onSelectPort(isSelected ? null : port.port_idx);
+                      if (isUplink || assigningPorts) return;
+                      onTogglePort(port.port_idx);
                     }}
                   >
                     <span className="text-[10px] font-bold">{port.port_idx}</span>
@@ -122,8 +122,13 @@ function SwitchPortDiagram({ portTable, portOverrides, networks, unitVlanId, sel
                     {isUp && (
                       <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-status-online" />
                     )}
-                    {isUnitVlan && (
+                    {isUnitVlan && !isSelected && (
                       <div className="absolute top-0.5 left-0.5 w-1.5 h-1.5 rounded-full bg-chart-3" />
+                    )}
+                    {isSelected && (
+                      <div className="absolute top-0.5 left-0.5">
+                        <CheckCircle2 className="h-2.5 w-2.5 text-primary" />
+                      </div>
                     )}
                     {isUplink && (
                       <span className="absolute -bottom-0.5 text-[7px] text-muted-foreground">UL</span>
@@ -136,7 +141,8 @@ function SwitchPortDiagram({ portTable, portOverrides, networks, unitVlanId, sel
                   <p>Status: {isUp ? `Up (${speed >= 1000 ? `${speed/1000}G` : `${speed}M`})` : "Down"}</p>
                   {poeEnabled && <p>PoE: Active</p>}
                   {isUnitVlan && <p className="text-chart-3 font-medium">Assigned to unit network</p>}
-                  {!isUplink && <p className="text-primary mt-1">Click to configure</p>}
+                  {isSelected && <p className="text-primary font-medium">Selected</p>}
+                  {!isUplink && <p className="text-primary mt-1">Click to {isSelected ? "deselect" : "select"}</p>}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -148,6 +154,7 @@ function SwitchPortDiagram({ portTable, portOverrides, networks, unitVlanId, sel
         {unitVlanId != null && <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-chart-3" /> Unit VLAN</div>}
         <div className="flex items-center gap-1"><div className="w-2 h-2 rounded bg-primary/20 border border-primary/30" /> Custom VLAN</div>
         <div className="flex items-center gap-1"><div className="w-2 h-2 rounded bg-muted border border-dashed" /> Down</div>
+        {selectedPorts.size > 0 && <div className="flex items-center gap-1"><CheckCircle2 className="h-2.5 w-2.5 text-primary" /> Selected ({selectedPorts.size})</div>}
       </div>
     </div>
   );
@@ -162,7 +169,7 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const [selectedPort, setSelectedPort] = useState<number | null>(null);
+  const [selectedPorts, setSelectedPorts] = useState<Set<number>>(new Set());
   const { data, isLoading, refetch } = useQuery<any>({
     queryKey: ["/api/devices", device.id, "details", controllerId, siteId],
     queryFn: async () => {
@@ -172,53 +179,60 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
     },
   });
 
+  const togglePort = (portIdx: number) => {
+    setSelectedPorts(prev => {
+      const next = new Set(prev);
+      if (next.has(portIdx)) next.delete(portIdx);
+      else next.add(portIdx);
+      return next;
+    });
+  };
+
   const assignMutation = useMutation({
-    mutationFn: async ({ portIdx, nativeVlan }: { portIdx: number; nativeVlan: number }) => {
-      await apiRequest("POST", `/api/devices/${device.id}/set-port-vlan`, {
+    mutationFn: async ({ ports, nativeVlan }: { ports: number[]; nativeVlan: number }) => {
+      await apiRequest("POST", `/api/devices/${device.id}/set-port-vlans`, {
         controllerId,
         siteId,
-        portIdx,
-        nativeVlan,
+        ports: ports.map(portIdx => ({ portIdx, nativeVlan })),
       });
     },
-    onSuccess: () => {
-      toast({ title: "Port updated", description: `Port ${selectedPort} native VLAN set to ${unitVlanId}` });
-      setSelectedPort(null);
+    onSuccess: (_data, variables) => {
+      toast({ title: "Ports updated", description: `${variables.ports.length} port(s) set to VLAN ${variables.nativeVlan}` });
+      setSelectedPorts(new Set());
       refetch();
     },
-    onError: (err: any) => toast({ title: "Failed to update port", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Failed to update ports", description: err.message, variant: "destructive" }),
   });
 
   const resetMutation = useMutation({
-    mutationFn: async ({ portIdx }: { portIdx: number }) => {
-      await apiRequest("POST", `/api/devices/${device.id}/set-port-vlan`, {
+    mutationFn: async ({ ports }: { ports: number[] }) => {
+      await apiRequest("POST", `/api/devices/${device.id}/set-port-vlans`, {
         controllerId,
         siteId,
-        portIdx,
-        nativeVlan: 1,
+        ports: ports.map(portIdx => ({ portIdx, nativeVlan: 1 })),
       });
     },
-    onSuccess: () => {
-      toast({ title: "Port reset", description: `Port ${selectedPort} reset to default VLAN` });
-      setSelectedPort(null);
+    onSuccess: (_data, variables) => {
+      toast({ title: "Ports reset", description: `${variables.ports.length} port(s) reset to default VLAN` });
+      setSelectedPorts(new Set());
       refetch();
     },
-    onError: (err: any) => toast({ title: "Failed to reset port", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Failed to reset ports", description: err.message, variant: "destructive" }),
   });
 
   const isAP = device.deviceType === "access_point" || device.deviceType === "hybrid";
   const isSwitch = device.deviceType === "switch" || device.deviceType === "hybrid";
 
-  const selectedPortData = selectedPort != null && data?.unifi?.port_table
-    ? data.unifi.port_table.find((p: any) => p.port_idx === selectedPort)
-    : null;
-  const selectedOverride = selectedPort != null && data?.unifi?.port_overrides
-    ? data.unifi.port_overrides.find((po: any) => po.port_idx === selectedPort)
-    : null;
-  const selectedNativeVlan = selectedOverride?.native_vlan || selectedPortData?.native_vlan || 1;
-  const selectedNetId = selectedOverride?.native_networkconf_id || selectedPortData?.native_networkconf_id;
-  const selectedNet = selectedNetId && data?.networks ? data.networks.find((n: any) => n._id === selectedNetId) : null;
-  const isAlreadyUnitVlan = unitVlanId != null && selectedNativeVlan === unitVlanId;
+  const getPortVlan = (portIdx: number) => {
+    const portData = data?.unifi?.port_table?.find((p: any) => p.port_idx === portIdx);
+    const override = data?.unifi?.port_overrides?.find((po: any) => po.port_idx === portIdx);
+    return override?.native_vlan || portData?.native_vlan || 1;
+  };
+
+  const selectedPortsArray = Array.from(selectedPorts);
+  const allSelectedAlreadyUnit = selectedPortsArray.length > 0 && unitVlanId != null && selectedPortsArray.every(p => getPortVlan(p) === unitVlanId);
+  const anySelectedNonDefault = selectedPortsArray.some(p => getPortVlan(p) !== 1);
+  const anySelectedNotUnit = unitVlanId != null && selectedPortsArray.some(p => getPortVlan(p) !== unitVlanId);
 
   return (
     <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
@@ -335,54 +349,55 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
                 portOverrides={data.unifi.port_overrides || []}
                 networks={data.networks || []}
                 unitVlanId={unitVlanId}
-                selectedPort={selectedPort}
-                onSelectPort={setSelectedPort}
-                assigningPort={assignMutation.isPending || resetMutation.isPending}
+                selectedPorts={selectedPorts}
+                onTogglePort={togglePort}
+                assigningPorts={assignMutation.isPending || resetMutation.isPending}
               />
 
-              {selectedPort != null && selectedPortData && (
+              {selectedPorts.size > 0 && (
                 <div className="mt-3 p-3 rounded-lg border bg-muted/30 space-y-3" data-testid="port-config-panel">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-semibold">Port {selectedPort}</p>
+                      <p className="text-sm font-semibold">{selectedPorts.size} port{selectedPorts.size > 1 ? "s" : ""} selected</p>
                       <p className="text-xs text-muted-foreground">
-                        Current native: {selectedNet ? `${selectedNet.name} (VLAN ${selectedNativeVlan})` : selectedNativeVlan === 1 ? "Default (VLAN 1)" : `VLAN ${selectedNativeVlan}`}
+                        Ports: {selectedPortsArray.sort((a, b) => a - b).join(", ")}
                       </p>
                     </div>
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => setSelectedPort(null)}
+                      onClick={() => setSelectedPorts(new Set())}
                       className="h-7 text-xs"
+                      data-testid="button-clear-selection"
                     >
-                      Close
+                      Clear
                     </Button>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    {unitVlanId != null && !isAlreadyUnitVlan && (
+                    {unitVlanId != null && anySelectedNotUnit && (
                       <Button
                         size="sm"
-                        onClick={() => assignMutation.mutate({ portIdx: selectedPort, nativeVlan: unitVlanId })}
+                        onClick={() => assignMutation.mutate({ ports: selectedPortsArray, nativeVlan: unitVlanId })}
                         disabled={assignMutation.isPending || resetMutation.isPending}
                         data-testid="button-assign-unit-vlan"
                       >
                         {assignMutation.isPending ? (
                           <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Assigning...</>
                         ) : (
-                          <>Assign to {unitNetworkName || `VLAN ${unitVlanId}`}</>
+                          <>Assign {selectedPorts.size > 1 ? `${selectedPorts.size} ports` : "port"} to {unitNetworkName || `VLAN ${unitVlanId}`}</>
                         )}
                       </Button>
                     )}
-                    {isAlreadyUnitVlan && (
+                    {allSelectedAlreadyUnit && (
                       <Badge variant="default" className="bg-chart-3/15 text-chart-3 border-0">
-                        <CheckCircle2 className="h-3 w-3 mr-1" /> Already assigned to unit network
+                        <CheckCircle2 className="h-3 w-3 mr-1" /> All selected ports already on unit network
                       </Badge>
                     )}
-                    {selectedNativeVlan !== 1 && (
+                    {anySelectedNonDefault && (
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => resetMutation.mutate({ portIdx: selectedPort })}
+                        onClick={() => resetMutation.mutate({ ports: selectedPortsArray.filter(p => getPortVlan(p) !== 1) })}
                         disabled={assignMutation.isPending || resetMutation.isPending}
                         data-testid="button-reset-port"
                       >

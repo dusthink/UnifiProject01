@@ -585,12 +585,33 @@ export class UnifiClient {
     return this.request(`/api/s/${siteId}/rest/wlanconf/${wlanId}`, "DELETE");
   }
 
-  async setPortProfile(siteId: string, deviceId: string, portIdx: number, nativeVlan: number): Promise<any> {
-    const deviceData = await this.request(`/api/s/${siteId}/rest/device/${deviceId}`);
-    if (!deviceData?.data?.[0]) throw new Error("Device not found");
+  private async updateDevicePortOverrides(siteId: string, deviceId: string, deviceMac: string, portOverrides: any[]): Promise<any> {
+    const endpoints = [
+      { path: `/api/s/${siteId}/rest/device/${deviceId}`, method: "PUT" as const, body: { port_overrides: portOverrides } },
+      { path: `/api/s/${siteId}/cmd/devmgr`, method: "POST" as const, body: { cmd: "update-device", device: { _id: deviceId, port_overrides: portOverrides } } },
+    ];
 
-    const device = deviceData.data[0];
-    const portOverrides = device.port_overrides || [];
+    let lastError: Error | null = null;
+    for (const ep of endpoints) {
+      try {
+        console.log(`[unifi] Trying port update via ${ep.method} ${ep.path}`);
+        const result = await this.request(ep.path, ep.method, ep.body);
+        await this.request(`/api/s/${siteId}/cmd/devmgr`, "POST", { cmd: "force-provision", mac: deviceMac }).catch(() => {});
+        return result;
+      } catch (err: any) {
+        console.log(`[unifi] Port update failed via ${ep.path}: ${err.message}`);
+        lastError = err;
+      }
+    }
+    throw lastError || new Error("Failed to update port overrides");
+  }
+
+  async setPortProfile(siteId: string, deviceId: string, deviceMac: string, portIdx: number, nativeVlan: number): Promise<any> {
+    const allDevices = await this.getDevices(siteId);
+    const device = allDevices.find((d: any) => d._id === deviceId);
+    if (!device) throw new Error("Device not found on controller");
+
+    const portOverrides = [...(device.port_overrides || [])];
 
     const existingIdx = portOverrides.findIndex((p: any) => p.port_idx === portIdx);
     const portConfig = {
@@ -608,7 +629,35 @@ export class UnifiClient {
       portOverrides.push(portConfig);
     }
 
-    return this.request(`/api/s/${siteId}/rest/device/${deviceId}`, "PUT", { port_overrides: portOverrides });
+    return this.updateDevicePortOverrides(siteId, deviceId, deviceMac, portOverrides);
+  }
+
+  async setPortProfiles(siteId: string, deviceId: string, deviceMac: string, ports: { portIdx: number; nativeVlan: number }[]): Promise<any> {
+    const allDevices = await this.getDevices(siteId);
+    const device = allDevices.find((d: any) => d._id === deviceId);
+    if (!device) throw new Error("Device not found on controller");
+
+    const portOverrides = [...(device.port_overrides || [])];
+
+    for (const { portIdx, nativeVlan } of ports) {
+      const existingIdx = portOverrides.findIndex((p: any) => p.port_idx === portIdx);
+      const portConfig = {
+        port_idx: portIdx,
+        native_networkconf_id: "",
+        portconf_id: "",
+        poe_mode: "auto",
+        forward: "customize",
+        native_vlan: nativeVlan,
+      };
+
+      if (existingIdx >= 0) {
+        portOverrides[existingIdx] = { ...portOverrides[existingIdx], ...portConfig };
+      } else {
+        portOverrides.push(portConfig);
+      }
+    }
+
+    return this.updateDevicePortOverrides(siteId, deviceId, deviceMac, portOverrides);
   }
 
   async getClientStats(siteId: string = "default"): Promise<any[]> {

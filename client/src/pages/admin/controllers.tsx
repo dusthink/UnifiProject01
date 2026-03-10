@@ -648,6 +648,12 @@ export default function ControllersPage() {
   const wf = (field: string, value: any) => setWifi(prev => ({ ...prev, [field]: value }));
   const resetWifi = () => { setWifi(wifiDefaults); setShowWifiAdvanced(false); setShowWifiPassword(false); };
 
+  const [selectedNetworkIds, setSelectedNetworkIds] = useState<string[]>([]);
+  const [selectedWifiIds, setSelectedWifiIds] = useState<string[]>([]);
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState<{ type: "networks" | "wifi" | "devices"; ids: string[] } | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   const [bulkWifiOpen, setBulkWifiOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
   const [bulkWifiTab, setBulkWifiTab] = useState<"ppsk" | "ssid">("ppsk");
   const [bulkWifiPpskMode, setBulkWifiPpskMode] = useState<"new" | "existing">("new");
@@ -686,6 +692,8 @@ export default function ControllersPage() {
     queryKey: ["/api/controllers"],
   });
 
+  const clearSelections = () => { setSelectedNetworkIds([]); setSelectedWifiIds([]); setSelectedDeviceIds([]); };
+
   const toggleController = (ctrlId: string) => {
     if (expandedCtrlId === ctrlId) {
       setExpandedCtrlId(null);
@@ -694,6 +702,7 @@ export default function ControllersPage() {
       setExpandedCtrlId(ctrlId);
       setExpandedSiteId(null);
     }
+    clearSelections();
   };
 
   const toggleSite = (siteId: string) => {
@@ -703,6 +712,7 @@ export default function ControllersPage() {
       setExpandedSiteId(siteId);
       setSiteTab("networks");
     }
+    clearSelections();
   };
 
   const { data: sites } = useQuery<any[]>({
@@ -1851,7 +1861,7 @@ export default function ControllersPage() {
                                   <div className="flex border-b">
                                     <button
                                       className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "networks" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-                                      onClick={() => setSiteTab("networks")}
+                                      onClick={() => { setSiteTab("networks"); setSelectedNetworkIds([]); setSelectedWifiIds([]); setSelectedDeviceIds([]); }}
                                       data-testid={`button-tab-networks-${siteKey}`}
                                     >
                                       <Layers className="h-3.5 w-3.5" />
@@ -1860,7 +1870,7 @@ export default function ControllersPage() {
                                     </button>
                                     <button
                                       className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "wifi" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-                                      onClick={() => setSiteTab("wifi")}
+                                      onClick={() => { setSiteTab("wifi"); setSelectedNetworkIds([]); setSelectedWifiIds([]); setSelectedDeviceIds([]); }}
                                       data-testid={`button-tab-wifi-${siteKey}`}
                                     >
                                       <Wifi className="h-3.5 w-3.5" />
@@ -1869,7 +1879,7 @@ export default function ControllersPage() {
                                     </button>
                                     <button
                                       className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "devices" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-                                      onClick={() => setSiteTab("devices")}
+                                      onClick={() => { setSiteTab("devices"); setSelectedNetworkIds([]); setSelectedWifiIds([]); setSelectedDeviceIds([]); }}
                                       data-testid={`button-tab-devices-${siteKey}`}
                                     >
                                       <Monitor className="h-3.5 w-3.5" />
@@ -1880,29 +1890,57 @@ export default function ControllersPage() {
 
                                   {siteTab === "networks" && (
                                     <div className="p-3">
-                                      <div className="flex items-center justify-end mb-3 gap-2">
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() => setBulkOpen({ controllerId: ctrl.id, siteId: siteKey })}
-                                          data-testid={`button-bulk-add-network-${siteKey}`}
-                                        >
-                                          <Copy className="h-3.5 w-3.5 mr-1" />
-                                          Bulk Add
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          onClick={() => setAddNetworkOpen({ controllerId: ctrl.id, siteId: siteKey })}
-                                          data-testid={`button-add-network-${siteKey}`}
-                                        >
-                                          <Plus className="h-3.5 w-3.5 mr-1" />
-                                          Add Network
-                                        </Button>
+                                      <div className="flex items-center justify-between mb-3">
+                                        <div>
+                                          {selectedNetworkIds.length > 0 && (
+                                            <Button
+                                              size="sm"
+                                              variant="destructive"
+                                              onClick={() => setBulkDeleteConfirm({ type: "networks", ids: selectedNetworkIds })}
+                                              data-testid="button-bulk-delete-networks"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                              Delete {selectedNetworkIds.length} Selected
+                                            </Button>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => setBulkOpen({ controllerId: ctrl.id, siteId: siteKey })}
+                                            data-testid={`button-bulk-add-network-${siteKey}`}
+                                          >
+                                            <Copy className="h-3.5 w-3.5 mr-1" />
+                                            Bulk Add
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            onClick={() => setAddNetworkOpen({ controllerId: ctrl.id, siteId: siteKey })}
+                                            data-testid={`button-add-network-${siteKey}`}
+                                          >
+                                            <Plus className="h-3.5 w-3.5 mr-1" />
+                                            Add Network
+                                          </Button>
+                                        </div>
                                       </div>
                                       {siteNetworks && siteNetworks.length > 0 ? (
                                         <Table>
                                           <TableHeader>
                                             <TableRow>
+                                              <TableHead className="w-[40px]">
+                                                <Checkbox
+                                                  checked={siteNetworks.filter(n => n.isManaged).length > 0 && siteNetworks.filter(n => n.isManaged).every(n => selectedNetworkIds.includes(n.id))}
+                                                  onCheckedChange={(checked) => {
+                                                    if (checked) {
+                                                      setSelectedNetworkIds(siteNetworks.filter(n => n.isManaged).map(n => n.id));
+                                                    } else {
+                                                      setSelectedNetworkIds([]);
+                                                    }
+                                                  }}
+                                                  data-testid="checkbox-select-all-networks"
+                                                />
+                                              </TableHead>
                                               <TableHead>Name</TableHead>
                                               <TableHead>VLAN</TableHead>
                                               <TableHead>Subnet</TableHead>
@@ -1914,6 +1952,21 @@ export default function ControllersPage() {
                                           <TableBody>
                                             {siteNetworks.map((net) => (
                                               <TableRow key={net.id} className={!net.isManaged ? "opacity-75" : ""} data-testid={`row-network-${net.id}`}>
+                                                <TableCell>
+                                                  {net.isManaged ? (
+                                                    <Checkbox
+                                                      checked={selectedNetworkIds.includes(net.id)}
+                                                      onCheckedChange={(checked) => {
+                                                        if (checked) {
+                                                          setSelectedNetworkIds(prev => prev.includes(net.id) ? prev : [...prev, net.id]);
+                                                        } else {
+                                                          setSelectedNetworkIds(prev => prev.filter(id => id !== net.id));
+                                                        }
+                                                      }}
+                                                      data-testid={`checkbox-network-${net.id}`}
+                                                    />
+                                                  ) : null}
+                                                </TableCell>
                                                 <TableCell className="font-medium" data-testid={`text-network-name-${net.id}`}>{net.name}</TableCell>
                                                 <TableCell>
                                                   <Badge variant="secondary" data-testid={`badge-vlan-${net.id}`}>VLAN {net.vlanId}</Badge>
@@ -1970,24 +2023,39 @@ export default function ControllersPage() {
 
                                   {siteTab === "wifi" && (
                                     <div className="p-3">
-                                      <div className="flex items-center justify-end gap-2 mb-3">
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() => { resetBulkWifi(); setBulkWifiOpen({ controllerId: ctrl.id, siteId: siteKey }); }}
-                                          data-testid={`button-bulk-wifi-${siteKey}`}
-                                        >
-                                          <Layers className="h-3.5 w-3.5 mr-1" />
-                                          Bulk WiFi
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          onClick={() => setAddWifiOpen({ controllerId: ctrl.id, siteId: siteKey })}
-                                          data-testid={`button-add-wifi-${siteKey}`}
-                                        >
-                                          <Plus className="h-3.5 w-3.5 mr-1" />
-                                          Add WiFi Network
-                                        </Button>
+                                      <div className="flex items-center justify-between gap-2 mb-3">
+                                        <div>
+                                          {selectedWifiIds.length > 0 && (
+                                            <Button
+                                              size="sm"
+                                              variant="destructive"
+                                              onClick={() => setBulkDeleteConfirm({ type: "wifi", ids: selectedWifiIds })}
+                                              data-testid="button-bulk-delete-wifi"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                              Delete {selectedWifiIds.length} Selected
+                                            </Button>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => { resetBulkWifi(); setBulkWifiOpen({ controllerId: ctrl.id, siteId: siteKey }); }}
+                                            data-testid={`button-bulk-wifi-${siteKey}`}
+                                          >
+                                            <Layers className="h-3.5 w-3.5 mr-1" />
+                                            Bulk WiFi
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            onClick={() => setAddWifiOpen({ controllerId: ctrl.id, siteId: siteKey })}
+                                            data-testid={`button-add-wifi-${siteKey}`}
+                                          >
+                                            <Plus className="h-3.5 w-3.5 mr-1" />
+                                            Add WiFi Network
+                                          </Button>
+                                        </div>
                                       </div>
                                       {wifiLoading ? (
                                         <div className="space-y-2">
@@ -1999,6 +2067,19 @@ export default function ControllersPage() {
                                         <Table>
                                           <TableHeader>
                                             <TableRow>
+                                              <TableHead className="w-[40px]">
+                                                <Checkbox
+                                                  checked={wifiNetworks.filter((wn: any) => wn.isManaged).length > 0 && wifiNetworks.filter((wn: any) => wn.isManaged).every((wn: any) => selectedWifiIds.includes(wn.id))}
+                                                  onCheckedChange={(checked) => {
+                                                    if (checked) {
+                                                      setSelectedWifiIds(wifiNetworks.filter((wn: any) => wn.isManaged).map((wn: any) => wn.id));
+                                                    } else {
+                                                      setSelectedWifiIds([]);
+                                                    }
+                                                  }}
+                                                  data-testid="checkbox-select-all-wifi"
+                                                />
+                                              </TableHead>
                                               <TableHead>SSID</TableHead>
                                               <TableHead>Security</TableHead>
                                               <TableHead>Password</TableHead>
@@ -2010,6 +2091,21 @@ export default function ControllersPage() {
                                           <TableBody>
                                             {wifiNetworks.map((wn: any) => (
                                               <TableRow key={wn.id} data-testid={`row-wifi-${wn.id}`}>
+                                                <TableCell>
+                                                  {wn.isManaged ? (
+                                                    <Checkbox
+                                                      checked={selectedWifiIds.includes(wn.id)}
+                                                      onCheckedChange={(checked) => {
+                                                        if (checked) {
+                                                          setSelectedWifiIds(prev => prev.includes(wn.id) ? prev : [...prev, wn.id]);
+                                                        } else {
+                                                          setSelectedWifiIds(prev => prev.filter((id: string) => id !== wn.id));
+                                                        }
+                                                      }}
+                                                      data-testid={`checkbox-wifi-${wn.id}`}
+                                                    />
+                                                  ) : null}
+                                                </TableCell>
                                                 <TableCell className="font-medium">
                                                   <div className="flex items-center gap-2">
                                                     <Wifi className="h-4 w-4 text-muted-foreground" />
@@ -2071,7 +2167,20 @@ export default function ControllersPage() {
 
                                   {siteTab === "devices" && (
                                     <div className="p-3">
-                                      <div className="flex items-center justify-end mb-3">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <div>
+                                          {selectedDeviceIds.length > 0 && (
+                                            <Button
+                                              size="sm"
+                                              variant="destructive"
+                                              onClick={() => setBulkDeleteConfirm({ type: "devices", ids: selectedDeviceIds })}
+                                              data-testid="button-bulk-delete-devices"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                              Delete {selectedDeviceIds.length} Selected
+                                            </Button>
+                                          )}
+                                        </div>
                                         <Button
                                           size="sm"
                                           onClick={() => setImportDevicesOpen(true)}
@@ -2091,6 +2200,19 @@ export default function ControllersPage() {
                                         <Table>
                                           <TableHeader>
                                             <TableRow>
+                                              <TableHead className="w-[40px]">
+                                                <Checkbox
+                                                  checked={importedDevices.length > 0 && importedDevices.every(d => selectedDeviceIds.includes(d.id))}
+                                                  onCheckedChange={(checked) => {
+                                                    if (checked) {
+                                                      setSelectedDeviceIds(importedDevices.map(d => d.id));
+                                                    } else {
+                                                      setSelectedDeviceIds([]);
+                                                    }
+                                                  }}
+                                                  data-testid="checkbox-select-all-devices"
+                                                />
+                                              </TableHead>
                                               <TableHead>Name</TableHead>
                                               <TableHead>Type</TableHead>
                                               <TableHead>Model</TableHead>
@@ -2101,6 +2223,19 @@ export default function ControllersPage() {
                                           <TableBody>
                                             {importedDevices.map((dev) => (
                                               <TableRow key={dev.id} data-testid={`row-device-${dev.id}`}>
+                                                <TableCell>
+                                                  <Checkbox
+                                                    checked={selectedDeviceIds.includes(dev.id)}
+                                                    onCheckedChange={(checked) => {
+                                                      if (checked) {
+                                                        setSelectedDeviceIds(prev => prev.includes(dev.id) ? prev : [...prev, dev.id]);
+                                                      } else {
+                                                        setSelectedDeviceIds(prev => prev.filter(id => id !== dev.id));
+                                                      }
+                                                    }}
+                                                    data-testid={`checkbox-device-${dev.id}`}
+                                                  />
+                                                </TableCell>
                                                 <TableCell className="font-medium" data-testid={`text-device-name-${dev.id}`}>
                                                   <div className="flex items-center gap-3">
                                                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted/50">
@@ -2519,6 +2654,88 @@ export default function ControllersPage() {
                     </>
                   ) : (
                     `Apply to ${bulkWifiSelectedNetworks.length} Network${bulkWifiSelectedNetworks.length !== 1 ? "s" : ""}`
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!bulkDeleteConfirm} onOpenChange={(open) => { if (!open && !bulkDeleting) setBulkDeleteConfirm(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Bulk Delete</DialogTitle>
+          </DialogHeader>
+          {bulkDeleteConfirm && (
+            <div className="space-y-4">
+              <p className="text-sm">
+                Are you sure you want to delete <span className="font-semibold">{bulkDeleteConfirm.ids.length}</span>{" "}
+                {bulkDeleteConfirm.type === "networks" ? "network" : bulkDeleteConfirm.type === "wifi" ? "WiFi network" : "device"}
+                {bulkDeleteConfirm.ids.length !== 1 ? "s" : ""}?
+              </p>
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm space-y-1">
+                <p className="font-medium text-destructive">Warning:</p>
+                {bulkDeleteConfirm.type === "networks" && (
+                  <p className="text-muted-foreground">Selected networks will be removed from both this platform and the UniFi controller. Any WiFi networks attached to these VLANs may also be affected.</p>
+                )}
+                {bulkDeleteConfirm.type === "wifi" && (
+                  <p className="text-muted-foreground">Selected SSIDs will be removed from both this platform and the UniFi controller. Tenants using these WiFi networks will lose connectivity.</p>
+                )}
+                {bulkDeleteConfirm.type === "devices" && (
+                  <p className="text-muted-foreground">Selected devices will be removed from this platform. Any existing unit port assignments using these devices will also be deleted.</p>
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setBulkDeleteConfirm(null)} disabled={bulkDeleting} data-testid="button-cancel-bulk-delete">
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={bulkDeleting}
+                  data-testid="button-confirm-bulk-delete"
+                  onClick={async () => {
+                    setBulkDeleting(true);
+                    const { type, ids } = bulkDeleteConfirm;
+                    let successCount = 0;
+                    let failCount = 0;
+                    const failedIds: string[] = [];
+                    for (const id of ids) {
+                      try {
+                        const endpoint = type === "networks" ? `/api/networks/${id}` : type === "wifi" ? `/api/wifi-networks/${id}` : `/api/devices/${id}`;
+                        await apiRequest("DELETE", endpoint);
+                        successCount++;
+                      } catch {
+                        failCount++;
+                        failedIds.push(id);
+                      }
+                    }
+                    if (type === "networks") {
+                      queryClient.invalidateQueries({ queryKey: ["/api/networks/controller", expandedCtrlId, "site", expandedSiteId] });
+                      setSelectedNetworkIds(failedIds);
+                    } else if (type === "wifi") {
+                      queryClient.invalidateQueries({ queryKey: ["/api/wifi-networks/controller"] });
+                      setSelectedWifiIds(failedIds);
+                    } else {
+                      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+                      setSelectedDeviceIds(failedIds);
+                    }
+                    toast({
+                      title: `Deleted ${successCount} ${type === "networks" ? "network" : type === "wifi" ? "WiFi network" : "device"}${successCount !== 1 ? "s" : ""}`,
+                      description: failCount > 0 ? `${failCount} failed to delete.` : undefined,
+                      variant: failCount > 0 ? "destructive" : undefined,
+                    });
+                    setBulkDeleting(false);
+                    setBulkDeleteConfirm(null);
+                  }}
+                >
+                  {bulkDeleting ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    `Delete ${bulkDeleteConfirm.ids.length} Item${bulkDeleteConfirm.ids.length !== 1 ? "s" : ""}`
                   )}
                 </Button>
               </div>

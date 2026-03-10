@@ -54,8 +54,10 @@ export interface IStorage {
   getDevicesByBuilding(buildingId: string): Promise<Device[]>;
 
   getPortAssignments(unitId: string): Promise<UnitDevicePort[]>;
+  getPortAssignment(id: string): Promise<UnitDevicePort | undefined>;
   createPortAssignment(data: InsertUnitDevicePort): Promise<UnitDevicePort>;
   deletePortAssignment(id: string): Promise<void>;
+  deletePortAssignmentsByUnit(unitId: string): Promise<void>;
   getPortAssignmentsByDevice(deviceId: string): Promise<UnitDevicePort[]>;
 
   createInviteToken(data: InsertInviteToken): Promise<InviteToken>;
@@ -248,6 +250,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(unitDevicePorts).where(eq(unitDevicePorts.unitId, unitId));
   }
 
+  async getPortAssignment(id: string): Promise<UnitDevicePort | undefined> {
+    const [assignment] = await db.select().from(unitDevicePorts).where(eq(unitDevicePorts.id, id));
+    return assignment;
+  }
+
   async createPortAssignment(data: InsertUnitDevicePort): Promise<UnitDevicePort> {
     const [assignment] = await db.insert(unitDevicePorts).values(data).returning();
     return assignment;
@@ -255,6 +262,10 @@ export class DatabaseStorage implements IStorage {
 
   async deletePortAssignment(id: string): Promise<void> {
     await db.delete(unitDevicePorts).where(eq(unitDevicePorts.id, id));
+  }
+
+  async deletePortAssignmentsByUnit(unitId: string): Promise<void> {
+    await db.delete(unitDevicePorts).where(eq(unitDevicePorts.unitId, unitId));
   }
 
   async getPortAssignmentsByDevice(deviceId: string): Promise<UnitDevicePort[]> {

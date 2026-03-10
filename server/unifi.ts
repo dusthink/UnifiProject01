@@ -560,8 +560,13 @@ export class UnifiClient {
   async updateApGroup(siteId: string, groupId: string, updates: { name?: string; device_macs?: string[] }): Promise<any> {
     try {
       return await this.request(`/v2/api/site/${siteId}/apgroups/${groupId}`, "PUT", updates);
-    } catch {
-      return this.request(`/api/s/${siteId}/rest/apgroup/${groupId}`, "PUT", updates);
+    } catch (e1: any) {
+      try {
+        return await this.request(`/api/s/${siteId}/rest/apgroup/${groupId}`, "PUT", updates);
+      } catch (e2: any) {
+        console.log(`[unifi] AP group update failed - v2: ${e1.message}, legacy: ${e2.message}`);
+        throw e2;
+      }
     }
   }
 

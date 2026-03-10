@@ -402,12 +402,34 @@ export async function registerRoutes(
         updateData.networkId = null;
       }
     }
+    const oldUnit = await storage.getUnit(req.params.id);
     const unit = await storage.updateUnit(req.params.id, updateData);
     if (!unit) return res.status(404).json({ message: "Unit not found" });
+
+    if (oldUnit && "unifiWlanId" in updateData && oldUnit.unifiWlanId !== unit.unifiWlanId) {
+      const assignments = await storage.getPortAssignments(unit.id);
+      for (const a of assignments) {
+        const device = await storage.getDevice(a.deviceId);
+        if (device && (device.deviceType === "access_point" || device.deviceType === "hybrid")) {
+          if (oldUnit.unifiWlanId) syncApToWlan(device, oldUnit, "remove");
+          if (unit.unifiWlanId) syncApToWlan(device, unit, "add");
+        }
+      }
+    }
+
     res.json(unit);
   });
 
   app.delete("/api/units/:id", requireAdmin, async (req, res) => {
+    const unit = await storage.getUnit(req.params.id);
+    if (unit?.unifiWlanId) {
+      const assignments = await storage.getPortAssignments(unit.id);
+      for (const a of assignments) {
+        const device = await storage.getDevice(a.deviceId);
+        if (device) await syncApToWlan(device, unit, "remove");
+      }
+    }
+    await storage.deletePortAssignmentsByUnit(req.params.id);
     await storage.deleteUnit(req.params.id);
     res.status(204).end();
   });
@@ -453,15 +475,84 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  async function syncApToWlan(device: any, unit: any, action: "add" | "remove") {
+    if (!device || !unit) return;
+    const isAp = device.deviceType === "access_point" || device.deviceType === "hybrid";
+    if (!isAp || !unit.unifiWlanId || !device.macAddress) return;
+
+    try {
+      const building = await storage.getBuilding(unit.buildingId);
+      if (!building) return;
+      const community = await storage.getCommunity(building.communityId);
+      if (!community?.controllerId) return;
+      const controller = await storage.getController(community.controllerId);
+      if (!controller?.isVerified) return;
+
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      const siteId = community.unifiSiteId || "default";
+      const wlan = await client.getWlanDetail(siteId, unit.unifiWlanId);
+      if (!wlan) return;
+
+      const apGroupIds = wlan.ap_group_ids || [];
+      if (apGroupIds.length === 0) return;
+
+      const apGroups = await client.getApGroups(siteId);
+      const mac = device.macAddress.toLowerCase();
+
+      for (const groupId of apGroupIds) {
+        const group = apGroups.find((g: any) => g._id === groupId);
+        if (!group) continue;
+        if (group.attr_no_delete) continue;
+
+        const currentMacs: string[] = (group.device_macs || []).map((m: string) => m.toLowerCase());
+
+        if (action === "add" && !currentMacs.includes(mac)) {
+          const newMacs = [...(group.device_macs || []), mac];
+          await client.updateApGroup(siteId, groupId, { name: group.name, device_macs: newMacs });
+          console.log(`[unifi] Added AP ${mac} to AP group "${group.name}" for WLAN "${wlan.name}"`);
+        } else if (action === "remove" && currentMacs.includes(mac)) {
+          const otherAssignments = await storage.getPortAssignmentsByDevice(device.id);
+          const otherUnitsWithSameWlan = await Promise.all(
+            otherAssignments.map(async (a) => {
+              if (a.unitId === unit.id) return false;
+              const otherUnit = await storage.getUnit(a.unitId);
+              return otherUnit?.unifiWlanId === unit.unifiWlanId;
+            })
+          );
+          if (otherUnitsWithSameWlan.some(Boolean)) continue;
+
+          const updatedMacs = (group.device_macs || []).filter((m: string) => m.toLowerCase() !== mac);
+          await client.updateApGroup(siteId, groupId, { name: group.name, device_macs: updatedMacs });
+          console.log(`[unifi] Removed AP ${mac} from AP group "${group.name}" for WLAN "${wlan.name}"`);
+        }
+      }
+    } catch (err: any) {
+      console.log(`[unifi] AP-WLAN sync (${action}) failed for device ${device.id}: ${err.message}`);
+    }
+  }
+
   app.post("/api/port-assignments", requireAdmin, async (req, res) => {
     const parsed = insertUnitDevicePortSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const assignment = await storage.createPortAssignment(parsed.data);
+
+    const device = await storage.getDevice(assignment.deviceId);
+    const unit = await storage.getUnit(assignment.unitId);
+    syncApToWlan(device, unit, "add");
+
     res.status(201).json(assignment);
   });
 
   app.delete("/api/port-assignments/:id", requireAdmin, async (req, res) => {
-    await storage.deletePortAssignment(req.params.id);
+    const assignment = await storage.getPortAssignment(req.params.id);
+    if (assignment) {
+      const device = await storage.getDevice(assignment.deviceId);
+      const unit = await storage.getUnit(assignment.unitId);
+      await storage.deletePortAssignment(req.params.id);
+      syncApToWlan(device, unit, "remove");
+    } else {
+      await storage.deletePortAssignment(req.params.id);
+    }
     res.status(204).end();
   });
 

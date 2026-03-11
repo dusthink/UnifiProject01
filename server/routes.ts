@@ -309,6 +309,21 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  app.get("/api/communities/:communityId/units", requireAdmin, async (req, res) => {
+    const buildings = await storage.getBuildings(req.params.communityId);
+    const allUnits = await Promise.all(
+      buildings.map(async (building) => {
+        const units = await storage.getUnits(building.id);
+        return units.map((unit) => ({
+          ...unit,
+          buildingName: building.name,
+          buildingId: building.id,
+        }));
+      })
+    );
+    res.json(allUnits.flat());
+  });
+
   app.get("/api/buildings/:id", requireAdmin, async (req, res) => {
     const building = await storage.getBuilding(req.params.id);
     if (!building) return res.status(404).json({ message: "Building not found" });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Mail, Building2, CheckCircle, XCircle, Loader2, Eye, EyeOff, Send } from "lucide-react";
+import { Mail, Building2, CheckCircle, XCircle, Loader2, Eye, EyeOff, Send, Upload, X } from "lucide-react";
 
 interface SmtpSettings {
   host: string;
@@ -46,6 +46,8 @@ export default function SettingsPage() {
   const [testLoading, setTestLoading] = useState(false);
   const [smtpForm, setSmtpForm] = useState<SmtpSettings | null>(null);
   const [brandingForm, setBrandingForm] = useState<BrandingSettings | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: smtpData, isLoading: smtpLoading } = useQuery<SmtpSettings>({
     queryKey: ["/api/admin/settings/smtp"],
@@ -80,6 +82,28 @@ export default function SettingsPage() {
     },
     onError: () => toast({ title: "Failed to save branding settings", variant: "destructive" }),
   });
+
+  async function uploadLogo(file: File) {
+    setLogoUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("logo", file);
+      const res = await fetch("/api/admin/upload/logo", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || "Upload failed");
+      const current = brandingForm ?? brandingData ?? emptyBranding;
+      setBrandingForm({ ...current, logo: data.url });
+      toast({ title: "Logo uploaded successfully" });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setLogoUploading(false);
+    }
+  }
 
   async function sendTestEmail() {
     if (!testEmail) return;
@@ -293,18 +317,59 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="brand-logo">Logo URL</Label>
-                    <Input
-                      id="brand-logo"
-                      data-testid="input-brand-logo"
-                      placeholder="https://example.com/logo.png"
-                      value={branding.logo}
-                      onChange={e => setBrandingForm({ ...branding, logo: e.target.value })}
-                    />
-                    <p className="text-xs text-muted-foreground">Paste a publicly accessible image URL for your logo</p>
+                    <Label>Logo</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="brand-logo"
+                        data-testid="input-brand-logo"
+                        placeholder="https://example.com/logo.png or upload below"
+                        value={branding.logo}
+                        onChange={e => setBrandingForm({ ...branding, logo: e.target.value })}
+                        className="flex-1"
+                      />
+                      {branding.logo && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          data-testid="button-clear-logo"
+                          onClick={() => setBrandingForm({ ...branding, logo: "" })}
+                          className="shrink-0 text-muted-foreground hover:text-destructive"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        data-testid="input-logo-file"
+                        onChange={e => {
+                          const file = e.target.files?.[0];
+                          if (file) uploadLogo(file);
+                          e.target.value = "";
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        data-testid="button-upload-logo"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={logoUploading}
+                        className="gap-2"
+                      >
+                        {logoUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                        {logoUploading ? "Uploading…" : "Upload image"}
+                      </Button>
+                      <span className="text-xs text-muted-foreground">PNG, JPG, SVG up to 5 MB</span>
+                    </div>
                   </div>
                   {branding.logo && (
-                    <div className="rounded-lg border bg-muted/30 p-4 flex items-center justify-center">
+                    <div className="rounded-lg border bg-muted/30 p-4 flex items-center justify-center min-h-20">
                       <img
                         src={branding.logo}
                         alt="Logo preview"

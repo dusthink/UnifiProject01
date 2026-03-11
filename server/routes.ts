@@ -310,6 +310,39 @@ export async function registerRoutes(
     res.json(data);
   });
 
+  app.post("/api/admin/upload/logo", requireAdmin, async (req, res) => {
+    try {
+      const multer = (await import("multer")).default;
+      const path = await import("path");
+      const fs = await import("fs");
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      const storage_disk = multer.diskStorage({
+        destination: uploadsDir,
+        filename: (_req, file, cb) => {
+          const ext = path.extname(file.originalname).toLowerCase();
+          cb(null, `logo-${Date.now()}${ext}`);
+        },
+      });
+      const upload = multer({
+        storage: storage_disk,
+        limits: { fileSize: 5 * 1024 * 1024 },
+        fileFilter: (_req, file, cb) => {
+          if (file.mimetype.startsWith("image/")) cb(null, true);
+          else cb(new Error("Only image files are allowed"));
+        },
+      }).single("logo");
+      upload(req, res, (err) => {
+        if (err) return res.status(400).json({ error: err.message });
+        if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+        const url = `/uploads/${req.file.filename}`;
+        res.json({ url });
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/api/admin/settings/smtp/test", requireAdmin, async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ success: false, error: "Email address required" });

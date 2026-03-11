@@ -60,6 +60,7 @@ export interface IStorage {
   deletePortAssignmentsByUnit(unitId: string): Promise<void>;
   getPortAssignmentsByDevice(deviceId: string): Promise<UnitDevicePort[]>;
   getDeviceSsidCounts(): Promise<{ deviceId: string; wlanIds: string[] }[]>;
+  getDeviceUnitAssignments(): Promise<{ deviceId: string; unitId: string; unitNumber: string; buildingName: string }[]>;
 
   createInviteToken(data: InsertInviteToken): Promise<InviteToken>;
   getInviteTokenByToken(token: string): Promise<InviteToken | undefined>;
@@ -288,6 +289,19 @@ export class DatabaseStorage implements IStorage {
       deviceId,
       wlanIds: Array.from(wlanIdSet),
     }));
+  }
+
+  async getDeviceUnitAssignments(): Promise<{ deviceId: string; unitId: string; unitNumber: string; buildingName: string }[]> {
+    return db
+      .select({
+        deviceId: unitDevicePorts.deviceId,
+        unitId: unitDevicePorts.unitId,
+        unitNumber: units.unitNumber,
+        buildingName: buildings.name,
+      })
+      .from(unitDevicePorts)
+      .innerJoin(units, eq(unitDevicePorts.unitId, units.id))
+      .innerJoin(buildings, eq(units.buildingId, buildings.id));
   }
 
   async createInviteToken(data: InsertInviteToken): Promise<InviteToken> {

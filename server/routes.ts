@@ -458,6 +458,16 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  app.get("/api/devices/unit-assignments", requireAdmin, async (req, res) => {
+    const rows = await storage.getDeviceUnitAssignments();
+    const result: Record<string, { unitId: string; unitNumber: string; buildingName: string }[]> = {};
+    for (const row of rows) {
+      if (!result[row.deviceId]) result[row.deviceId] = [];
+      result[row.deviceId].push({ unitId: row.unitId, unitNumber: row.unitNumber, buildingName: row.buildingName });
+    }
+    res.json(result);
+  });
+
   app.get("/api/devices/ssid-counts", requireAdmin, async (req, res) => {
     const counts = await storage.getDeviceSsidCounts();
     const result: Record<string, { count: number; wlanIds: string[] }> = {};

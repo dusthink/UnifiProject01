@@ -2123,6 +2123,11 @@ export default function ControllersPage() {
     enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "devices",
   });
 
+  const { data: deviceUnitAssignments } = useQuery<Record<string, { unitId: string; unitNumber: string; buildingName: string }[]>>({
+    queryKey: ["/api/devices/unit-assignments"],
+    enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "devices",
+  });
+
   const { data: wifiNetworks, isLoading: wifiLoading } = useQuery<any[]>({
     queryKey: ["/api/wifi-networks/controller", expandedCtrlId, "site", expandedSiteId],
     queryFn: async () => {
@@ -3940,7 +3945,28 @@ export default function ControllersPage() {
                                                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted/50">
                                                       <DeviceImage iconId={dev.iconId} deviceType={(dev.deviceType as DeviceType) || "other"} size={32} />
                                                     </div>
-                                                    {dev.name}
+                                                    <div className="min-w-0">
+                                                      <p className="truncate">{dev.name}</p>
+                                                      {deviceUnitAssignments?.[dev.id]?.length ? (
+                                                        <div className="flex flex-wrap gap-1 mt-1">
+                                                          {deviceUnitAssignments[dev.id].map((a) => (
+                                                            <TooltipProvider key={a.unitId} delayDuration={200}>
+                                                              <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                  <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-secondary text-secondary-foreground border border-border cursor-default" data-testid={`badge-unit-${dev.id}-${a.unitId}`}>
+                                                                    <Layers className="h-2.5 w-2.5" />
+                                                                    {a.unitNumber}
+                                                                  </span>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent side="top" className="text-xs">
+                                                                  {a.buildingName} · Unit {a.unitNumber}
+                                                                </TooltipContent>
+                                                              </Tooltip>
+                                                            </TooltipProvider>
+                                                          ))}
+                                                        </div>
+                                                      ) : null}
+                                                    </div>
                                                   </div>
                                                 </TableCell>
                                                 <TableCell>

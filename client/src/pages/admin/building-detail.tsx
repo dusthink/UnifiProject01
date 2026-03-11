@@ -862,6 +862,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "units"] });
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "port-assignments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/devices/ssid-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/devices/unit-assignments"] });
       setAddOpen(false);
       resetForm();
       toast({ title: "Unit added" });
@@ -890,6 +891,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "units"] });
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "port-assignments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/devices/ssid-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/devices/unit-assignments"] });
       setEditOpen(false);
       setEditUnit(null);
       toast({ title: "Unit updated" });
@@ -905,6 +907,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "units"] });
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "port-assignments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/devices/ssid-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/devices/unit-assignments"] });
       toast({ title: "Device removed from unit" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),

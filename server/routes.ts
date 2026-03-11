@@ -493,40 +493,61 @@ export async function registerRoutes(
       const wlan = await client.getWlanDetail(siteId, unit.unifiWlanId);
       if (!wlan) return;
 
-      const apGroupIds = wlan.ap_group_ids || [];
-      if (apGroupIds.length === 0) return;
-
-      const apGroups = await client.getApGroups(siteId);
       const mac = device.macAddress.toLowerCase();
+      const apGroups = await client.getApGroups(siteId);
+      const managedGroupName = `managed-${wlan.name}`;
+      let managedGroup = apGroups.find((g: any) => g.name === managedGroupName);
 
-      for (const groupId of apGroupIds) {
-        const group = apGroups.find((g: any) => g._id === groupId);
-        if (!group) continue;
-        if (group.attr_no_delete) continue;
-
-        const currentMacs: string[] = (group.device_macs || []).map((m: string) => m.toLowerCase());
-
-        if (action === "add" && !currentMacs.includes(mac)) {
-          const newMacs = [...(group.device_macs || []), mac];
-          await client.updateApGroup(siteId, groupId, { name: group.name, device_macs: newMacs });
-          await client.forceProvision(siteId, mac);
-          console.log(`[unifi] Added AP ${mac} to AP group "${group.name}" for WLAN "${wlan.name}"`);
-        } else if (action === "remove" && currentMacs.includes(mac)) {
-          const otherAssignments = await storage.getPortAssignmentsByDevice(device.id);
-          const otherUnitsWithSameWlan = await Promise.all(
-            otherAssignments.map(async (a) => {
-              if (a.unitId === unit.id) return false;
-              const otherUnit = await storage.getUnit(a.unitId);
-              return otherUnit?.unifiWlanId === unit.unifiWlanId;
-            })
-          );
-          if (otherUnitsWithSameWlan.some(Boolean)) continue;
-
-          const updatedMacs = (group.device_macs || []).filter((m: string) => m.toLowerCase() !== mac);
-          await client.updateApGroup(siteId, groupId, { name: group.name, device_macs: updatedMacs });
-          await client.forceProvision(siteId, mac);
-          console.log(`[unifi] Removed AP ${mac} from AP group "${group.name}" for WLAN "${wlan.name}"`);
+      if (action === "add") {
+        if (!managedGroup) {
+          const result = await client.createApGroup(siteId, managedGroupName, [mac]);
+          const newGroupId = result?.data?.[0]?._id || result?._id;
+          if (!newGroupId) {
+            console.log(`[unifi] Failed to create managed AP group "${managedGroupName}"`);
+            return;
+          }
+          const currentApGroupIds = wlan.ap_group_ids || [];
+          if (!currentApGroupIds.includes(newGroupId)) {
+            await client.updateWlan(siteId, unit.unifiWlanId, {
+              ap_group_ids: [...currentApGroupIds, newGroupId],
+            });
+          }
+          console.log(`[unifi] Created AP group "${managedGroupName}" with AP ${mac} for WLAN "${wlan.name}"`);
+        } else {
+          const currentMacs: string[] = (managedGroup.device_macs || []).map((m: string) => m.toLowerCase());
+          if (!currentMacs.includes(mac)) {
+            const newMacs = [...(managedGroup.device_macs || []), mac];
+            await client.updateApGroup(siteId, managedGroup._id, { name: managedGroupName, device_macs: newMacs });
+            console.log(`[unifi] Added AP ${mac} to AP group "${managedGroupName}" for WLAN "${wlan.name}"`);
+          }
+          const currentApGroupIds = wlan.ap_group_ids || [];
+          if (!currentApGroupIds.includes(managedGroup._id)) {
+            await client.updateWlan(siteId, unit.unifiWlanId, {
+              ap_group_ids: [...currentApGroupIds, managedGroup._id],
+            });
+          }
         }
+        await client.forceProvision(siteId, mac);
+      } else if (action === "remove") {
+        if (!managedGroup) return;
+
+        const currentMacs: string[] = (managedGroup.device_macs || []).map((m: string) => m.toLowerCase());
+        if (!currentMacs.includes(mac)) return;
+
+        const otherAssignments = await storage.getPortAssignmentsByDevice(device.id);
+        const otherUnitsWithSameWlan = await Promise.all(
+          otherAssignments.map(async (a) => {
+            if (a.unitId === unit.id) return false;
+            const otherUnit = await storage.getUnit(a.unitId);
+            return otherUnit?.unifiWlanId === unit.unifiWlanId;
+          })
+        );
+        if (otherUnitsWithSameWlan.some(Boolean)) return;
+
+        const updatedMacs = (managedGroup.device_macs || []).filter((m: string) => m.toLowerCase() !== mac);
+        await client.updateApGroup(siteId, managedGroup._id, { name: managedGroupName, device_macs: updatedMacs });
+        await client.forceProvision(siteId, mac);
+        console.log(`[unifi] Removed AP ${mac} from AP group "${managedGroupName}" for WLAN "${wlan.name}"`);
       }
     } catch (err: any) {
       console.log(`[unifi] AP-WLAN sync (${action}) failed for device ${device.id}: ${err.message}`);

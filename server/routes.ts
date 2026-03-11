@@ -411,8 +411,8 @@ export async function registerRoutes(
       for (const a of assignments) {
         const device = await storage.getDevice(a.deviceId);
         if (device && (device.deviceType === "access_point" || device.deviceType === "hybrid")) {
-          if (oldUnit.unifiWlanId) syncApToWlan(device, oldUnit, "remove");
-          if (unit.unifiWlanId) syncApToWlan(device, unit, "add");
+          if (oldUnit.unifiWlanId) await syncApToWlan(device, oldUnit, "remove");
+          if (unit.unifiWlanId) await syncApToWlan(device, unit, "add");
         }
       }
     }
@@ -509,6 +509,7 @@ export async function registerRoutes(
         if (action === "add" && !currentMacs.includes(mac)) {
           const newMacs = [...(group.device_macs || []), mac];
           await client.updateApGroup(siteId, groupId, { name: group.name, device_macs: newMacs });
+          await client.forceProvision(siteId, mac);
           console.log(`[unifi] Added AP ${mac} to AP group "${group.name}" for WLAN "${wlan.name}"`);
         } else if (action === "remove" && currentMacs.includes(mac)) {
           const otherAssignments = await storage.getPortAssignmentsByDevice(device.id);
@@ -523,6 +524,7 @@ export async function registerRoutes(
 
           const updatedMacs = (group.device_macs || []).filter((m: string) => m.toLowerCase() !== mac);
           await client.updateApGroup(siteId, groupId, { name: group.name, device_macs: updatedMacs });
+          await client.forceProvision(siteId, mac);
           console.log(`[unifi] Removed AP ${mac} from AP group "${group.name}" for WLAN "${wlan.name}"`);
         }
       }
@@ -538,7 +540,7 @@ export async function registerRoutes(
 
     const device = await storage.getDevice(assignment.deviceId);
     const unit = await storage.getUnit(assignment.unitId);
-    syncApToWlan(device, unit, "add");
+    await syncApToWlan(device, unit, "add");
 
     res.status(201).json(assignment);
   });
@@ -549,7 +551,7 @@ export async function registerRoutes(
       const device = await storage.getDevice(assignment.deviceId);
       const unit = await storage.getUnit(assignment.unitId);
       await storage.deletePortAssignment(req.params.id);
-      syncApToWlan(device, unit, "remove");
+      await syncApToWlan(device, unit, "remove");
     } else {
       await storage.deletePortAssignment(req.params.id);
     }

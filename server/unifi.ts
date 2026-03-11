@@ -687,6 +687,9 @@ export class UnifiClient {
       return [];
     }
   }
+  async forceProvision(siteId: string, mac: string): Promise<void> {
+    await this.request(`/api/s/${siteId}/cmd/devmgr`, "POST", { cmd: "force-provision", mac }).catch(() => {});
+  }
 }
 
 const clientCache = new Map<string, UnifiClient>();

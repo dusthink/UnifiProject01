@@ -582,7 +582,31 @@ function formatUptime(seconds: number): string {
   return `${m}m`;
 }
 
-function UnitCard({ unit, devices, networks, wifiNetworks, portAssignments, controllerId, siteId, onDelete, onProvision, onDeprovision, onEdit, onRemoveDevice }: {
+const AP_TYPES = ["access_point", "hybrid"];
+const SSID_LIMIT = 4;
+
+function SsidBadge({ count, wlanIds }: { count: number; wlanIds: string[] }) {
+  const isAtLimit = count >= SSID_LIMIT;
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full border cursor-default ${isAtLimit ? "bg-destructive/10 text-destructive border-destructive/30" : "bg-primary/10 text-primary border-primary/20"}`} data-testid="badge-ssid-count">
+            <Wifi className="h-2.5 w-2.5" />
+            {count}/{SSID_LIMIT}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs max-w-[200px]">
+          {isAtLimit
+            ? `At SSID limit (${SSID_LIMIT}/${SSID_LIMIT}). Cannot assign to units with WiFi.`
+            : `Broadcasting ${count} of ${SSID_LIMIT} allowed SSIDs`}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function UnitCard({ unit, devices, networks, wifiNetworks, portAssignments, controllerId, siteId, ssidCounts, onDelete, onProvision, onDeprovision, onEdit, onRemoveDevice }: {
   unit: Unit;
   devices: Device[];
   networks: Network[];
@@ -590,6 +614,7 @@ function UnitCard({ unit, devices, networks, wifiNetworks, portAssignments, cont
   portAssignments: UnitDevicePort[];
   controllerId: string;
   siteId: string;
+  ssidCounts: Record<string, { count: number; wlanIds: string[] }>;
   onDelete: (id: string) => void;
   onProvision: (id: string) => void;
   onDeprovision: (id: string) => void;
@@ -689,11 +714,14 @@ function UnitCard({ unit, devices, networks, wifiNetworks, portAssignments, cont
                           <DeviceImage iconId={device.iconId} deviceType={device.deviceType} size={28} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <p className="text-sm font-medium truncate">{device.name}</p>
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
                               {deviceTypeLabels[device.deviceType || "other"]}
                             </Badge>
+                            {AP_TYPES.includes(device.deviceType || "") && ssidCounts?.[device.id] && (
+                              <SsidBadge count={ssidCounts[device.id].count} wlanIds={ssidCounts[device.id].wlanIds} />
+                            )}
                           </div>
                           <p className="text-xs text-muted-foreground truncate">
                             {device.macAddress}{device.model ? ` · ${device.model}` : ""}{device.portCount ? ` · ${device.portCount} ports` : ""}
@@ -798,6 +826,10 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     enabled: !!community?.controllerId,
   });
 
+  const { data: ssidCounts } = useQuery<Record<string, { count: number; wlanIds: string[] }>>({
+    queryKey: ["/api/devices/ssid-counts"],
+  });
+
   const { data: allPortAssignments } = useQuery<Record<string, UnitDevicePort[]>>({
     queryKey: ["/api/buildings", id, "port-assignments"],
     queryFn: async () => {
@@ -829,6 +861,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
       }
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "units"] });
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "port-assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/devices/ssid-counts"] });
       setAddOpen(false);
       resetForm();
       toast({ title: "Unit added" });
@@ -856,6 +889,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "units"] });
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "port-assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/devices/ssid-counts"] });
       setEditOpen(false);
       setEditUnit(null);
       toast({ title: "Unit updated" });
@@ -870,6 +904,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "units"] });
       queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "port-assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/devices/ssid-counts"] });
       toast({ title: "Device removed from unit" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -1023,30 +1058,52 @@ export default function BuildingDetailPage({ id }: { id: string }) {
           <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-3">
             {availableDevices.map((device) => {
               const isSelected = selectedDeviceIds.includes(device.id);
+              const isApDevice = AP_TYPES.includes(device.deviceType || "");
+              const deviceSsidInfo = ssidCounts?.[device.id];
+              const ssidCount = deviceSsidInfo?.count ?? 0;
+              const selectedWifi = selectedWifiNetworkId && selectedWifiNetworkId !== "none"
+                ? controllerWifiNetworks?.find(w => w.id === selectedWifiNetworkId)
+                : null;
+              const wouldAddNewSsid = selectedWifi && !deviceSsidInfo?.wlanIds.includes(selectedWifi.unifiWlanId || "");
+              const isBlocked = isApDevice && !isSelected && ssidCount >= SSID_LIMIT && !!selectedWifi && !!wouldAddNewSsid;
               return (
-                <label
-                  key={device.id}
-                  className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors ${isSelected ? "bg-primary/10" : "hover:bg-accent"}`}
-                  data-testid={`device-option-${device.id}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleDevice(device.id)}
-                    className="rounded"
-                    data-testid={`checkbox-device-${device.id}`}
-                  />
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted/50">
-                    <DeviceImage iconId={device.iconId} deviceType={device.deviceType} size={28} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-sm font-medium truncate">{device.name}</p>
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">{deviceTypeLabels[device.deviceType || "other"] || "Device"}</Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">{device.macAddress}{device.model ? ` · ${device.model}` : ""}{device.portCount ? ` · ${device.portCount} ports` : ""}</p>
-                  </div>
-                </label>
+                <TooltipProvider key={device.id} delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <label
+                        className={`flex items-center gap-3 p-2 rounded-md transition-colors ${isBlocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${isSelected ? "bg-primary/10" : isBlocked ? "" : "hover:bg-accent"}`}
+                        data-testid={`device-option-${device.id}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => !isBlocked && toggleDevice(device.id)}
+                          disabled={isBlocked}
+                          className="rounded"
+                          data-testid={`checkbox-device-${device.id}`}
+                        />
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted/50">
+                          <DeviceImage iconId={device.iconId} deviceType={device.deviceType} size={28} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-sm font-medium truncate">{device.name}</p>
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">{deviceTypeLabels[device.deviceType || "other"] || "Device"}</Badge>
+                            {isApDevice && ssidCount > 0 && (
+                              <SsidBadge count={ssidCount} wlanIds={deviceSsidInfo?.wlanIds ?? []} />
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">{device.macAddress}{device.model ? ` · ${device.model}` : ""}{device.portCount ? ` · ${device.portCount} ports` : ""}</p>
+                        </div>
+                      </label>
+                    </TooltipTrigger>
+                    {isBlocked && (
+                      <TooltipContent side="right" className="text-xs max-w-[220px]">
+                        This AP is already broadcasting {SSID_LIMIT} SSIDs and cannot be assigned to another unit with WiFi.
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
               );
             })}
           </div>
@@ -1171,6 +1228,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
               portAssignments={allPortAssignments?.[unit.id] || []}
               controllerId={community?.controllerId || ""}
               siteId={community?.unifiSiteId || "default"}
+              ssidCounts={ssidCounts || {}}
               onDelete={(uid) => { if (confirm("Delete this unit?")) deleteMutation.mutate(uid); }}
               onProvision={(uid) => provisionMutation.mutate(uid)}
               onDeprovision={(uid) => deprovisionMutation.mutate(uid)}

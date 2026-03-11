@@ -458,6 +458,15 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  app.get("/api/devices/ssid-counts", requireAdmin, async (req, res) => {
+    const counts = await storage.getDeviceSsidCounts();
+    const result: Record<string, { count: number; wlanIds: string[] }> = {};
+    for (const { deviceId, wlanIds } of counts) {
+      result[deviceId] = { count: wlanIds.length, wlanIds };
+    }
+    res.json(result);
+  });
+
   app.get("/api/devices/:id", requireAdmin, async (req, res) => {
     const device = await storage.getDevice(req.params.id);
     if (!device) return res.status(404).json({ message: "Device not found" });

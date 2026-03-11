@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, isNotNull } from "drizzle-orm";
 import { db } from "./db";
 import {
   users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers, sites, networks, wifiNetworks, controllerBackups, controllerBackupSettings,
@@ -59,6 +59,7 @@ export interface IStorage {
   deletePortAssignment(id: string): Promise<void>;
   deletePortAssignmentsByUnit(unitId: string): Promise<void>;
   getPortAssignmentsByDevice(deviceId: string): Promise<UnitDevicePort[]>;
+  getDeviceSsidCounts(): Promise<{ deviceId: string; wlanIds: string[] }[]>;
 
   createInviteToken(data: InsertInviteToken): Promise<InviteToken>;
   getInviteTokenByToken(token: string): Promise<InviteToken | undefined>;
@@ -270,6 +271,23 @@ export class DatabaseStorage implements IStorage {
 
   async getPortAssignmentsByDevice(deviceId: string): Promise<UnitDevicePort[]> {
     return db.select().from(unitDevicePorts).where(eq(unitDevicePorts.deviceId, deviceId));
+  }
+
+  async getDeviceSsidCounts(): Promise<{ deviceId: string; wlanIds: string[] }[]> {
+    const rows = await db
+      .select({ deviceId: unitDevicePorts.deviceId, wlanId: units.unifiWlanId })
+      .from(unitDevicePorts)
+      .innerJoin(units, eq(unitDevicePorts.unitId, units.id))
+      .where(isNotNull(units.unifiWlanId));
+    const map = new Map<string, Set<string>>();
+    for (const row of rows) {
+      if (!map.has(row.deviceId)) map.set(row.deviceId, new Set());
+      if (row.wlanId) map.get(row.deviceId)!.add(row.wlanId);
+    }
+    return Array.from(map.entries()).map(([deviceId, wlanIdSet]) => ({
+      deviceId,
+      wlanIds: Array.from(wlanIdSet),
+    }));
   }
 
   async createInviteToken(data: InsertInviteToken): Promise<InviteToken> {

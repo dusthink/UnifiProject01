@@ -959,16 +959,16 @@ export default function BuildingDetailPage({ id }: { id: string }) {
         </div>
         <div className="space-y-2">
           <Label>Floor <span className="text-destructive">*</span></Label>
-          <Input
-            type="number"
-            min={1}
-            max={building?.floors ?? undefined}
-            value={unitFloor}
-            onChange={(e) => setUnitFloor(e.target.value)}
-            placeholder="e.g., 1"
-            required
-            data-testid="input-unit-floor"
-          />
+          <Select value={unitFloor} onValueChange={setUnitFloor} required>
+            <SelectTrigger data-testid="select-unit-floor">
+              <SelectValue placeholder="Select floor" />
+            </SelectTrigger>
+            <SelectContent>
+              {Array.from({ length: building?.floors ?? 0 }, (_, i) => i + 1).map((f) => (
+                <SelectItem key={f} value={String(f)}>Floor {f}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">

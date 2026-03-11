@@ -595,26 +595,12 @@ export class UnifiClient {
     return devices.find((d: any) => d.mac?.toLowerCase() === macLower);
   }
 
-  private sanitizePortOverride(po: any): Record<string, any> {
-    const allowed = [
-      "port_idx", "name", "forward", "native_networkconf_id", "native_vlan",
-      "excluded_networkconf_ids", "tagged_vlan_mgmt", "portconf_id",
-      "poe_mode", "autoneg", "full_duplex", "speed",
-      "setting_preference", "aggregate_num_ports",
-    ];
-    const result: Record<string, any> = {};
-    for (const key of allowed) {
-      if (po[key] !== undefined) result[key] = po[key];
-    }
-    return result;
-  }
-
   private async updateDevicePortOverrides(siteId: string, controllerDeviceId: string, deviceMac: string, portOverrides: any[]): Promise<any> {
     const allDevices = await this.getDevices(siteId);
     const device = this.findDeviceByMac(allDevices, deviceMac);
     const actualId = device?._id || controllerDeviceId;
 
-    const sanitized = portOverrides.map(po => this.sanitizePortOverride(po));
+    const sanitized = portOverrides;
     const body: Record<string, any> = { port_overrides: sanitized };
     if (!device?.switch_vlan_enabled) {
       body.switch_vlan_enabled = true;
@@ -625,48 +611,52 @@ export class UnifiClient {
 
     const minimalOverrides = sanitized.map(po => {
       const min: Record<string, any> = { port_idx: po.port_idx };
-      if (po.forward) min.forward = po.forward;
-      if (po.native_networkconf_id) min.native_networkconf_id = po.native_networkconf_id;
-      if (po.tagged_vlan_mgmt) min.tagged_vlan_mgmt = po.tagged_vlan_mgmt;
-      if (po.excluded_networkconf_ids) min.excluded_networkconf_ids = po.excluded_networkconf_ids;
-      if (po.name) min.name = po.name;
-      if (po.poe_mode) min.poe_mode = po.poe_mode;
+      const keepFields = [
+        "forward", "native_networkconf_id", "native_vlan",
+        "tagged_vlan_mgmt", "excluded_networkconf_ids",
+        "name", "poe_mode", "autoneg", "speed", "full_duplex",
+        "aggregate_num_ports", "portconf_id",
+      ];
+      for (const key of keepFields) {
+        if (po[key] !== undefined) min[key] = po[key];
+      }
       return min;
     });
 
-    const attempts = [
-      { label: "PUT (minimal overrides only)", body: { port_overrides: minimalOverrides } },
-      { label: "PUT (sanitized + switch_vlan)", body },
-      { label: "PUT (raw overrides)", body: { port_overrides: portOverrides } },
-    ];
+    const putBody: Record<string, any> = { port_overrides: minimalOverrides };
+    if (body.switch_vlan_enabled) putBody.switch_vlan_enabled = true;
 
-    let lastError: Error | null = null;
-    for (const attempt of attempts) {
+    try {
+      console.log(`[unifi] PUT /rest/device/${actualId}`, JSON.stringify(putBody).substring(0, 400));
+      const result = await this.request(`/api/s/${siteId}/rest/device/${actualId}`, "PUT", putBody);
+      console.log(`[unifi] PUT succeeded, ${result?.data?.[0]?.port_overrides?.length || 0} port overrides returned`);
+      await this.request(`/api/s/${siteId}/cmd/devmgr`, "POST", { cmd: "force-provision", mac: deviceMac }).catch(() => {});
+      return result;
+    } catch (putErr: any) {
+      console.log(`[unifi] PUT failed: ${putErr.message}, trying cmd/devmgr fallback`);
       try {
-        console.log(`[unifi] Trying ${attempt.label}`, JSON.stringify(attempt.body).substring(0, 500));
-        const result = await this.request(`/api/s/${siteId}/rest/device/${actualId}`, "PUT", attempt.body);
-        const returnedOverrides = result?.data?.[0]?.port_overrides?.length;
-        console.log(`[unifi] ${attempt.label} succeeded, returned ${returnedOverrides || 0} port overrides`);
+        const result = await this.request(`/api/s/${siteId}/cmd/devmgr`, "POST", {
+          cmd: "update-device",
+          device: { _id: actualId, mac: deviceMac, ...putBody },
+        });
+        console.log(`[unifi] cmd/devmgr returned: ${JSON.stringify(result?.meta || {}).substring(0, 100)}`);
         await this.request(`/api/s/${siteId}/cmd/devmgr`, "POST", { cmd: "force-provision", mac: deviceMac }).catch(() => {});
         return result;
-      } catch (err: any) {
-        console.log(`[unifi] ${attempt.label} failed: ${err.message}`);
-        lastError = err;
+      } catch (cmdErr: any) {
+        console.log(`[unifi] cmd/devmgr also failed: ${cmdErr.message}`);
+        throw putErr;
       }
     }
-
-    throw lastError || new Error("Failed to update port overrides - all methods failed");
   }
 
-  private buildPortConfig(portIdx: number, nativeVlan: number, networkConfId: string, allNetworkIds: string[]): Record<string, any> {
+  private buildPortConfig(portIdx: number, networkConfId: string, allNetworkIds: string[]): Record<string, any> {
     const excludedIds = allNetworkIds.filter(id => id !== networkConfId);
     return {
       port_idx: portIdx,
-      portconf_id: "",
       forward: "customize",
       native_networkconf_id: networkConfId,
       excluded_networkconf_ids: excludedIds,
-      tagged_vlan_mgmt: "custom",
+      tagged_vlan_mgmt: "block_all",
     };
   }
 
@@ -684,7 +674,7 @@ export class UnifiClient {
     const allNetworkIds = allNetworks.filter((n: any) => n.purpose === "corporate" || n.purpose === "vlan-only").map((n: any) => n._id);
     const portOverrides = [...(device.port_overrides || [])];
     const existingIdx = portOverrides.findIndex((p: any) => p.port_idx === portIdx);
-    const portConfig = this.buildPortConfig(portIdx, nativeVlan, network._id, allNetworkIds);
+    const portConfig = this.buildPortConfig(portIdx, network._id, allNetworkIds);
 
     if (existingIdx >= 0) {
       portOverrides[existingIdx] = { ...portOverrides[existingIdx], ...portConfig };
@@ -711,7 +701,7 @@ export class UnifiClient {
       if (!network) throw new Error(`No network found for VLAN ${nativeVlan} on controller`);
 
       const existingIdx = portOverrides.findIndex((p: any) => p.port_idx === portIdx);
-      const portConfig = this.buildPortConfig(portIdx, nativeVlan, network._id, allNetworkIds);
+      const portConfig = this.buildPortConfig(portIdx, network._id, allNetworkIds);
 
       if (existingIdx >= 0) {
         portOverrides[existingIdx] = { ...portOverrides[existingIdx], ...portConfig };

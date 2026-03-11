@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Plus, Trash2, Wifi, CheckCircle2, XCircle, Zap, Settings, Monitor, Radio, ArrowLeftRight, Router, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Wifi, CheckCircle2, XCircle, Zap, Settings, Monitor, Radio, ArrowLeftRight, Router, ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
@@ -433,7 +433,7 @@ function formatUptime(seconds: number): string {
   return `${m}m`;
 }
 
-function UnitCard({ unit, devices, networks, wifiNetworks, portAssignments, controllerId, siteId, onDelete, onProvision, onDeprovision, onEdit }: {
+function UnitCard({ unit, devices, networks, wifiNetworks, portAssignments, controllerId, siteId, onDelete, onProvision, onDeprovision, onEdit, onRemoveDevice }: {
   unit: Unit;
   devices: Device[];
   networks: Network[];
@@ -445,6 +445,7 @@ function UnitCard({ unit, devices, networks, wifiNetworks, portAssignments, cont
   onProvision: (id: string) => void;
   onDeprovision: (id: string) => void;
   onEdit: (unit: Unit) => void;
+  onRemoveDevice: (assignmentId: string, deviceName: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [configDevice, setConfigDevice] = useState<Device | null>(null);
@@ -526,30 +527,44 @@ function UnitCard({ unit, devices, networks, wifiNetworks, portAssignments, cont
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Assigned Devices</p>
                 <div className="grid gap-2">
-                  {assignedDevices.map((device) => (
-                    <div
-                      key={device.id}
-                      className="flex items-center gap-3 p-2.5 rounded-lg border bg-card hover:bg-accent/50 cursor-pointer transition-colors"
-                      onClick={() => setConfigDevice(device)}
-                      data-testid={`device-config-${device.id}`}
-                    >
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted/50">
-                        <DeviceImage iconId={device.iconId} deviceType={device.deviceType} size={28} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-medium truncate">{device.name}</p>
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
-                            {deviceTypeLabels[device.deviceType || "other"]}
-                          </Badge>
+                  {assignedDevices.map((device) => {
+                    const assignment = portAssignments.find(pa => pa.deviceId === device.id);
+                    return (
+                      <div
+                        key={device.id}
+                        className="flex items-center gap-3 p-2.5 rounded-lg border bg-card hover:bg-accent/50 cursor-pointer transition-colors"
+                        onClick={() => setConfigDevice(device)}
+                        data-testid={`device-config-${device.id}`}
+                      >
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted/50">
+                          <DeviceImage iconId={device.iconId} deviceType={device.deviceType} size={28} />
                         </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {device.macAddress}{device.model ? ` · ${device.model}` : ""}{device.portCount ? ` · ${device.portCount} ports` : ""}
-                        </p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-medium truncate">{device.name}</p>
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
+                              {deviceTypeLabels[device.deviceType || "other"]}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {device.macAddress}{device.model ? ` · ${device.model}` : ""}{device.portCount ? ` · ${device.portCount} ports` : ""}
+                          </p>
+                        </div>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (assignment) onRemoveDevice(assignment.id, device.name);
+                          }}
+                          data-testid={`button-remove-device-${device.id}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
                       </div>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -694,6 +709,18 @@ export default function BuildingDetailPage({ id }: { id: string }) {
       setEditOpen(false);
       setEditUnit(null);
       toast({ title: "Unit updated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const removeDeviceMutation = useMutation({
+    mutationFn: async (assignmentId: string) => {
+      await apiRequest("DELETE", `/api/port-assignments/${assignmentId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "units"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/buildings", id, "port-assignments"] });
+      toast({ title: "Device removed from unit" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -979,6 +1006,9 @@ export default function BuildingDetailPage({ id }: { id: string }) {
               onProvision={(uid) => provisionMutation.mutate(uid)}
               onDeprovision={(uid) => deprovisionMutation.mutate(uid)}
               onEdit={openEdit}
+              onRemoveDevice={(assignmentId, deviceName) => {
+                if (confirm(`Remove ${deviceName} from this unit?`)) removeDeviceMutation.mutate(assignmentId);
+              }}
             />
           ))}
         </div>

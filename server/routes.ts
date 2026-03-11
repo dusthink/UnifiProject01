@@ -6,6 +6,21 @@ import { UnifiClient, getUnifiClient, clearClientCache } from "./unifi";
 import { insertCommunitySchema, insertBuildingSchema, insertUnitSchema, insertDeviceSchema, insertUnitDevicePortSchema, insertNetworkSchema, insertWifiNetworkSchema, loginSchema, registerSchema, type InsertWifiNetwork } from "@shared/schema";
 import passport from "passport";
 import { randomBytes } from "crypto";
+import { sendTenantInvite, sendTenantCredentials, isEmailConfigured } from "./email";
+
+function generatePassword(length = 12): string {
+  const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let pw = "";
+  const bytes = randomBytes(length);
+  for (let i = 0; i < length; i++) pw += chars[bytes[i] % chars.length];
+  return pw;
+}
+
+function getBaseUrl(): string {
+  if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
+  if (process.env.REPLIT_DOMAINS) return `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`;
+  return "http://localhost:5000";
+}
 
 function parseSubnet(cidr: string): { start: number; end: number } | null {
   const match = cidr.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/);
@@ -72,7 +87,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid input" });
       }
 
-      const { email, password, displayName, tosAccepted } = parsed.data;
+      const { email, displayName, tosAccepted } = parsed.data;
       const inviteToken = req.body.inviteToken as string | undefined;
 
       const existingEmail = await storage.getUserByEmail(email);
@@ -87,9 +102,10 @@ export async function registerRoutes(
 
       let role: "admin" | "tenant" = "admin";
       let unitId: string | undefined;
+      let invite: any = null;
 
       if (inviteToken) {
-        const invite = await storage.getInviteTokenByToken(inviteToken);
+        invite = await storage.getInviteTokenByToken(inviteToken);
         if (!invite) {
           return res.status(400).json({ message: "Invalid invite link" });
         }
@@ -106,7 +122,12 @@ export async function registerRoutes(
         unitId = invite.unitId;
       }
 
-      const hashed = await hashPassword(password);
+      const plainPassword = inviteToken ? generatePassword() : parsed.data.password;
+      if (!plainPassword) {
+        return res.status(400).json({ message: "Password is required" });
+      }
+
+      const hashed = await hashPassword(plainPassword);
       const user = await storage.createUser({
         username: email,
         email,
@@ -117,15 +138,21 @@ export async function registerRoutes(
         tosAcceptedAt: new Date(),
       });
 
-      if (inviteToken) {
-        const invite = await storage.getInviteTokenByToken(inviteToken);
-        if (invite) await storage.markInviteTokenUsed(invite.id);
+      if (inviteToken && invite) {
+        await storage.markInviteTokenUsed(invite.id);
+        const loginUrl = `${getBaseUrl()}/login`;
+        await sendTenantCredentials({
+          toEmail: email,
+          firstName: displayName.split(" ")[0] || displayName,
+          password: plainPassword,
+          loginUrl,
+        });
       }
 
       req.logIn(user, (err) => {
         if (err) return res.status(500).json({ message: "Account created but login failed" });
         const { password: _, ...safeUser } = user;
-        return res.status(201).json(safeUser);
+        return res.status(201).json({ ...safeUser, _generatedPassword: inviteToken ? plainPassword : undefined });
       });
     } catch (error: any) {
       res.status(500).json({ message: "Registration failed" });
@@ -196,7 +223,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/admin/invite", requireAdmin, async (req, res) => {
-    const { unitId, email } = req.body;
+    const { unitId, email, firstName, lastName, phone, sendEmail } = req.body;
     if (!unitId) {
       return res.status(400).json({ message: "Unit ID is required" });
     }
@@ -213,19 +240,30 @@ export async function registerRoutes(
       token,
       unitId,
       email: email || null,
+      firstName: firstName || null,
+      lastName: lastName || null,
+      phone: phone || null,
       expiresAt,
       createdBy: (req.user as any).id,
     });
 
-    const baseUrl = process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : process.env.REPLIT_DOMAINS
-        ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
-        : "http://localhost:5000";
+    const inviteUrl = `${getBaseUrl()}/register/tenant?token=${token}`;
 
-    const inviteUrl = `${baseUrl}/register/tenant?token=${token}`;
+    let emailSent = false;
+    if (sendEmail && email) {
+      const building = await storage.getBuilding(unit.buildingId);
+      const community = building ? await storage.getCommunity(building.communityId) : null;
+      emailSent = await sendTenantInvite({
+        toEmail: email,
+        firstName: firstName || "Tenant",
+        inviteUrl,
+        unitNumber: unit.unitNumber,
+        buildingName: building?.name || "your building",
+        communityName: community?.name || "your community",
+      });
+    }
 
-    res.status(201).json({ invite, inviteUrl });
+    res.status(201).json({ invite, inviteUrl, emailSent });
   });
 
   app.get("/api/admin/invites", requireAdmin, async (req, res) => {

@@ -4,11 +4,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Users, Plus, Copy, Check, Link, Mail, Clock, Eye, EyeOff } from "lucide-react";
+import { Users, Plus, Copy, Check, Link, Mail, Clock, Eye, EyeOff, Send, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Community, Building, Unit } from "@shared/schema";
@@ -27,6 +28,7 @@ export default function TenantsPage() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [sendInvite, setSendInvite] = useState(false);
 
   const [selectedCommunity, setSelectedCommunity] = useState("");
   const [selectedBuilding, setSelectedBuilding] = useState("");
@@ -39,6 +41,7 @@ export default function TenantsPage() {
   const [generatedLink, setGeneratedLink] = useState("");
 
   const [createdInfo, setCreatedInfo] = useState<{ name: string; email: string; password: string } | null>(null);
+  const [inviteSentInfo, setInviteSentInfo] = useState<{ name: string; email: string; inviteUrl: string; emailSent: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -107,6 +110,28 @@ export default function TenantsPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const sendInviteMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/admin/invite", data);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to send invite");
+      }
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setInviteSentInfo({
+        name: `${firstName} ${lastName}`.trim(),
+        email,
+        inviteUrl: data.inviteUrl,
+        emailSent: data.emailSent,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/invites"] });
+      toast({ title: data.emailSent ? "Invite email sent" : "Invite link generated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   const inviteMutation = useMutation({
     mutationFn: async (data: { unitId: string; email?: string }) => {
       const res = await apiRequest("POST", "/api/admin/invite", data);
@@ -142,12 +167,14 @@ export default function TenantsPage() {
 
   const resetCreateDialog = () => {
     setCreatedInfo(null);
+    setInviteSentInfo(null);
     setFirstName("");
     setLastName("");
     setEmail("");
     setPhone("");
     setPassword("");
     setShowPassword(false);
+    setSendInvite(false);
     setSelectedCommunity("");
     setSelectedBuilding("");
     setSelectedUnit("");
@@ -332,7 +359,9 @@ export default function TenantsPage() {
             </DialogTrigger>
             <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>{createdInfo ? "Tenant Created" : "Create Tenant Account"}</DialogTitle>
+                <DialogTitle>
+                  {createdInfo ? "Tenant Created" : inviteSentInfo ? "Invite Sent" : "Create Tenant Account"}
+                </DialogTitle>
               </DialogHeader>
 
               {createdInfo ? (
@@ -353,11 +382,67 @@ export default function TenantsPage() {
                     </Button>
                   </div>
                 </div>
+              ) : inviteSentInfo ? (
+                <div className="space-y-4">
+                  {inviteSentInfo.emailSent ? (
+                    <div className="flex items-start gap-3 p-4 rounded-md bg-green-500/10 text-green-700 dark:text-green-400">
+                      <Send className="h-5 w-5 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium text-sm">Invite email sent</p>
+                        <p className="text-sm mt-0.5">An invite was sent to <strong>{inviteSentInfo.email}</strong>. They'll receive a link to create their account.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-3 p-4 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                      <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium text-sm">Email not configured</p>
+                        <p className="text-sm mt-0.5">SMTP is not set up. Share this invite link manually with <strong>{inviteSentInfo.email}</strong>:</p>
+                      </div>
+                    </div>
+                  )}
+                  {!inviteSentInfo.emailSent && (
+                    <div className="p-3 rounded-md bg-muted text-sm break-all font-mono" data-testid="text-invite-link-created">
+                      {inviteSentInfo.inviteUrl}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    This invite link expires in 7 days
+                  </p>
+                  <div className="flex gap-2">
+                    {!inviteSentInfo.emailSent && (
+                      <Button
+                        onClick={() => { navigator.clipboard.writeText(inviteSentInfo.inviteUrl); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); }}
+                        className="flex-1"
+                        variant="secondary"
+                        data-testid="button-copy-invite-link-created"
+                      >
+                        {linkCopied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
+                        {linkCopied ? "Copied!" : "Copy Link"}
+                      </Button>
+                    )}
+                    <Button onClick={() => { setCreateDialogOpen(false); resetCreateDialog(); }} className="flex-1" data-testid="button-done-invite-created">
+                      Done
+                    </Button>
+                  </div>
+                </div>
               ) : (
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    createMutation.mutate({ firstName, lastName, email, phone: phone || undefined, password, unitId: selectedUnit });
+                    if (sendInvite) {
+                      sendInviteMutation.mutate({
+                        unitId: selectedUnit,
+                        email,
+                        firstName,
+                        lastName,
+                        phone: phone || undefined,
+                        sendEmail: true,
+                      });
+                    } else {
+                      createMutation.mutate({ firstName, lastName, email, phone: phone || undefined, password, unitId: selectedUnit });
+                    }
                   }}
                   className="space-y-4"
                 >
@@ -411,36 +496,56 @@ export default function TenantsPage() {
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="tenantPassword">Password <span className="text-destructive">*</span></Label>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Input
-                          id="tenantPassword"
-                          type={showPassword ? "text" : "password"}
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="Min 8 characters"
-                          required
-                          minLength={8}
-                          className="pr-10"
-                          data-testid="input-tenant-password"
-                        />
-                        <button
-                          type="button"
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          onClick={() => setShowPassword(!showPassword)}
-                          tabIndex={-1}
-                          data-testid="button-toggle-password"
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                      <Button type="button" variant="secondary" onClick={generatePassword} data-testid="button-generate-pw">
-                        Generate
-                      </Button>
+                  <div className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30 cursor-pointer" onClick={() => setSendInvite(!sendInvite)} data-testid="toggle-send-invite">
+                    <Checkbox
+                      id="sendInvite"
+                      checked={sendInvite}
+                      onCheckedChange={(c) => setSendInvite(c === true)}
+                      className="mt-0.5"
+                      data-testid="checkbox-send-invite"
+                    />
+                    <div>
+                      <label htmlFor="sendInvite" className="text-sm font-medium cursor-pointer">Send invite to tenant</label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {sendInvite
+                          ? "An invite link will be emailed to the tenant. They'll use it to create their account and will receive their password by email."
+                          : "Set a password below and share the credentials with the tenant manually."}
+                      </p>
                     </div>
                   </div>
+
+                  {!sendInvite && (
+                    <div className="space-y-2">
+                      <Label htmlFor="tenantPassword">Password <span className="text-destructive">*</span></Label>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Input
+                            id="tenantPassword"
+                            type={showPassword ? "text" : "password"}
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="Min 8 characters"
+                            required={!sendInvite}
+                            minLength={8}
+                            className="pr-10"
+                            data-testid="input-tenant-password"
+                          />
+                          <button
+                            type="button"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            onClick={() => setShowPassword(!showPassword)}
+                            tabIndex={-1}
+                            data-testid="button-toggle-password"
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        <Button type="button" variant="secondary" onClick={generatePassword} data-testid="button-generate-pw">
+                          Generate
+                        </Button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="border-t pt-4 space-y-4">
                     <p className="text-sm font-medium text-muted-foreground">Unit Assignment</p>
@@ -457,10 +562,18 @@ export default function TenantsPage() {
                   <Button
                     type="submit"
                     className="w-full"
-                    disabled={createMutation.isPending || !selectedUnit || !firstName || !lastName || !email || !password}
+                    disabled={
+                      createMutation.isPending || sendInviteMutation.isPending ||
+                      !selectedUnit || !firstName || !lastName || !email ||
+                      (!sendInvite && !password)
+                    }
                     data-testid="button-submit-tenant"
                   >
-                    {createMutation.isPending ? "Creating..." : "Create Tenant Account"}
+                    {sendInvite ? (
+                      <><Send className="h-4 w-4 mr-2" />{sendInviteMutation.isPending ? "Sending invite..." : "Send Invite"}</>
+                    ) : (
+                      createMutation.isPending ? "Creating..." : "Create Tenant Account"
+                    )}
                   </Button>
                 </form>
               )}

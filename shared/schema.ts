@@ -162,6 +162,9 @@ export const inviteTokens = pgTable("invite_tokens", {
   token: text("token").notNull().unique(),
   unitId: varchar("unit_id").notNull(),
   email: text("email"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  phone: text("phone"),
   expiresAt: timestamp("expires_at").notNull(),
   usedAt: timestamp("used_at"),
   createdBy: varchar("created_by").notNull(),
@@ -259,7 +262,7 @@ export const loginSchema = z.object({
 
 export const registerSchema = z.object({
   email: z.string().email("Valid email is required"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: z.string().min(8, "Password must be at least 8 characters").optional(),
   displayName: z.string().min(1, "Display name is required"),
   tosAccepted: z.literal(true, { errorMap: () => ({ message: "You must accept the Terms of Service" }) }),
 });

@@ -5,10 +5,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Wifi, AlertCircle, Eye, EyeOff, Building2, Home, CheckCircle2, XCircle, Loader2 } from "lucide-react";
-import { SiGoogle } from "react-icons/si";
+import { Wifi, AlertCircle, Building2, Home, CheckCircle2, XCircle, Loader2, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -31,12 +29,12 @@ export default function TenantRegisterPage() {
   const [isValidating, setIsValidating] = useState(true);
 
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [tosAccepted, setTosAccepted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [registered, setRegistered] = useState(false);
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -72,15 +70,10 @@ export default function TenantRegisterPage() {
       setError("You must accept the Terms of Service to create an account");
       return;
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
-      return;
-    }
     setIsLoading(true);
     try {
       const res = await apiRequest("POST", "/api/auth/register", {
         email,
-        password,
         displayName,
         tosAccepted: true,
         inviteToken: token,
@@ -89,17 +82,17 @@ export default function TenantRegisterPage() {
         const data = await res.json();
         throw new Error(data.message || "Registration failed");
       }
+      const data = await res.json();
+      if (data._generatedPassword) {
+        setGeneratedPassword(data._generatedPassword);
+      }
+      setRegistered(true);
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({ title: "Account created!", description: "Welcome to your tenant portal." });
     } catch (err: any) {
       setError(err.message || "Registration failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleGoogleRegister = () => {
-    window.location.href = `/api/auth/google?inviteToken=${token}`;
   };
 
   if (isValidating) {
@@ -139,6 +132,47 @@ export default function TenantRegisterPage() {
     );
   }
 
+  if (registered) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="w-full max-w-md space-y-6">
+          <div className="text-center space-y-2">
+            <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-green-500/10 mx-auto">
+              <CheckCircle2 className="h-7 w-7 text-green-500" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-register-success-title">Account Created!</h1>
+            <p className="text-muted-foreground text-sm">Welcome to your tenant portal</p>
+          </div>
+          <Card>
+            <CardContent className="py-6 space-y-4">
+              {generatedPassword ? (
+                <>
+                  <div className="flex items-start gap-3 p-3 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-300">
+                    <Mail className="h-5 w-5 shrink-0 mt-0.5" />
+                    <p className="text-sm">Your login credentials have been sent to <strong>{email}</strong>. Please check your inbox.</p>
+                  </div>
+                  <div className="p-4 rounded-md bg-muted space-y-2">
+                    <p className="text-sm"><span className="text-muted-foreground">Email:</span> <strong>{email}</strong></p>
+                    <p className="text-sm"><span className="text-muted-foreground">Password:</span> <strong className="font-mono">{generatedPassword}</strong></p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Keep this safe. You can change your password after logging in.</p>
+                </>
+              ) : (
+                <div className="flex items-start gap-3 p-3 rounded-md bg-green-500/10 text-green-700 dark:text-green-300">
+                  <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5" />
+                  <p className="text-sm">Your account is ready. You can now log in to the tenant portal.</p>
+                </div>
+              )}
+              <Button className="w-full" onClick={() => window.location.href = "/login"} data-testid="button-go-to-login">
+                Go to Login
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-8">
@@ -146,8 +180,8 @@ export default function TenantRegisterPage() {
           <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary mx-auto">
             <Wifi className="h-7 w-7 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-tenant-register-title">Set Up Your Account</h1>
-          <p className="text-muted-foreground text-sm">Create your tenant portal account</p>
+          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-tenant-register-title">Create Your Account</h1>
+          <p className="text-muted-foreground text-sm">Complete your registration to access your tenant portal</p>
         </div>
 
         {inviteInfo && (
@@ -170,26 +204,9 @@ export default function TenantRegisterPage() {
 
         <Card>
           <CardHeader className="pb-4">
-            <h2 className="text-lg font-semibold text-center">Create Your Account</h2>
+            <h2 className="text-lg font-semibold text-center">Your Details</h2>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Button
-              variant="outline"
-              className="w-full h-11 gap-3"
-              onClick={handleGoogleRegister}
-              data-testid="button-google-register"
-            >
-              <SiGoogle className="h-4 w-4" />
-              Sign up with Google
-            </Button>
-
-            <div className="relative">
-              <Separator />
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-3 text-xs text-muted-foreground">
-                or
-              </span>
-            </div>
-
             <form onSubmit={handleRegister} className="space-y-4">
               {error && (
                 <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-md" data-testid="text-register-error">
@@ -199,7 +216,7 @@ export default function TenantRegisterPage() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="displayName">Full Name</Label>
+                <Label htmlFor="displayName">Full Name <span className="text-destructive">*</span></Label>
                 <Input
                   id="displayName"
                   type="text"
@@ -213,7 +230,7 @@ export default function TenantRegisterPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">Email Address</Label>
                 <Input
                   id="email"
                   type="email"
@@ -230,31 +247,9 @@ export default function TenantRegisterPage() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 8 characters"
-                    required
-                    minLength={8}
-                    autoComplete="new-password"
-                    className="pr-10"
-                    data-testid="input-tenant-password"
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowPassword(!showPassword)}
-                    tabIndex={-1}
-                    data-testid="button-toggle-password"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
+              <div className="p-3 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-300 text-sm flex items-start gap-2">
+                <Mail className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>After registering, your login password will be sent to your email address.</span>
               </div>
 
               <div className="flex items-start gap-2">
@@ -275,12 +270,11 @@ export default function TenantRegisterPage() {
                   >
                     Terms of Service
                   </a>
-                  , including the use of unofficial UniFi APIs and support for verified firmware versions only.
                 </label>
               </div>
 
-              <Button type="submit" className="w-full" disabled={isLoading || !tosAccepted} data-testid="button-submit-register">
-                {isLoading ? "Creating account..." : "Create Account"}
+              <Button type="submit" className="w-full" disabled={isLoading || !tosAccepted || !displayName} data-testid="button-submit-register">
+                {isLoading ? "Creating account..." : "Complete Registration"}
               </Button>
             </form>
           </CardContent>

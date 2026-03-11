@@ -177,7 +177,7 @@ export default function CommunityDetailPage({ id }: { id: string }) {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="bldg-floors">Number of Floors</Label>
+                <Label htmlFor="bldg-floors">Number of Floors <span className="text-destructive">*</span></Label>
                 <Input
                   id="bldg-floors"
                   type="number"
@@ -189,7 +189,7 @@ export default function CommunityDetailPage({ id }: { id: string }) {
                   data-testid="input-building-floors"
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-building">
+              <Button type="submit" className="w-full" disabled={createMutation.isPending || !buildingFloors} data-testid="button-submit-building">
                 {createMutation.isPending ? "Adding..." : "Add Building"}
               </Button>
             </form>

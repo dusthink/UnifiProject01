@@ -591,9 +591,17 @@ export class UnifiClient {
   }
 
   private async updateDevicePortOverrides(siteId: string, deviceId: string, deviceMac: string, portOverrides: any[]): Promise<any> {
+    const allDevices = await this.getDevices(siteId);
+    const device = allDevices.find((d: any) => d._id === deviceId);
+    const isUap = device?.type === "uap";
+
+    const baseBody = isUap
+      ? { port_overrides: portOverrides, switch_vlan_enabled: true }
+      : { port_overrides: portOverrides };
+
     const endpoints = [
-      { path: `/api/s/${siteId}/rest/device/${deviceId}`, method: "PUT" as const, body: { port_overrides: portOverrides } },
-      { path: `/api/s/${siteId}/cmd/devmgr`, method: "POST" as const, body: { cmd: "update-device", device: { _id: deviceId, port_overrides: portOverrides } } },
+      { path: `/api/s/${siteId}/rest/device/${deviceId}`, method: "PUT" as const, body: baseBody },
+      { path: `/api/s/${siteId}/cmd/devmgr`, method: "POST" as const, body: { cmd: "update-device", device: { _id: deviceId, ...baseBody } } },
     ];
 
     let lastError: Error | null = null;
@@ -601,10 +609,6 @@ export class UnifiClient {
       try {
         console.log(`[unifi] Trying port update via ${ep.method} ${ep.path}`);
         const result = await this.request(ep.path, ep.method, ep.body);
-        if (result?.data && Array.isArray(result.data) && result.data.length === 0) {
-          console.log(`[unifi] Port update via ${ep.path} returned empty data, trying next method`);
-          continue;
-        }
         console.log(`[unifi] Port update succeeded via ${ep.path}`);
         await this.request(`/api/s/${siteId}/cmd/devmgr`, "POST", { cmd: "force-provision", mac: deviceMac }).catch(() => {});
         return result;
@@ -693,6 +697,36 @@ export class UnifiClient {
     }
 
     return this.updateDevicePortOverrides(siteId, deviceId, deviceMac, portOverrides);
+  }
+
+  async setSwitchVlanEnabled(siteId: string, deviceId: string, deviceMac: string, enabled: boolean): Promise<any> {
+    return this.updateDeviceSettings(siteId, deviceId, deviceMac, { switch_vlan_enabled: enabled });
+  }
+
+  private async updateDeviceSettings(siteId: string, deviceId: string, deviceMac: string, settings: Record<string, any>): Promise<any> {
+    const endpoints = [
+      { path: `/api/s/${siteId}/rest/device/${deviceId}`, method: "PUT" as const, body: settings },
+      { path: `/api/s/${siteId}/cmd/devmgr`, method: "POST" as const, body: { cmd: "update-device", device: { _id: deviceId, ...settings } } },
+    ];
+
+    let lastError: Error | null = null;
+    for (const ep of endpoints) {
+      try {
+        console.log(`[unifi] Trying device settings update via ${ep.method} ${ep.path}:`, JSON.stringify(settings));
+        const result = await this.request(ep.path, ep.method, ep.body);
+        if (result?.data && Array.isArray(result.data) && result.data.length === 0) {
+          console.log(`[unifi] Settings update via ${ep.path} returned empty data, trying next method`);
+          continue;
+        }
+        console.log(`[unifi] Device settings update succeeded via ${ep.path}`);
+        await this.request(`/api/s/${siteId}/cmd/devmgr`, "POST", { cmd: "force-provision", mac: deviceMac }).catch(() => {});
+        return result;
+      } catch (err: any) {
+        console.log(`[unifi] Device settings update failed via ${ep.path}: ${err.message}`);
+        lastError = err;
+      }
+    }
+    throw lastError || new Error("Failed to update device settings");
   }
 
   async getClientStats(siteId: string = "default"): Promise<any[]> {

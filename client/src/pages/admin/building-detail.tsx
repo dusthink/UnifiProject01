@@ -243,6 +243,21 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
     onError: (err: any) => toast({ title: "Failed to update ports", description: err.message, variant: "destructive" }),
   });
 
+  const switchVlanMutation = useMutation({
+    mutationFn: async ({ enabled }: { enabled: boolean }) => {
+      await apiRequest("POST", `/api/devices/${device.id}/set-switch-vlan`, {
+        controllerId,
+        siteId,
+        enabled,
+      });
+    },
+    onSuccess: (_data, variables) => {
+      toast({ title: variables.enabled ? "Port VLAN enabled" : "Port VLAN disabled", description: `Port VLAN management has been ${variables.enabled ? "enabled" : "disabled"} on this device` });
+      refetch();
+    },
+    onError: (err: any) => toast({ title: "Failed to update Port VLAN setting", description: err.message, variant: "destructive" }),
+  });
+
   const isAP = device.deviceType === "access_point" || device.deviceType === "hybrid";
   const isSwitch = device.deviceType === "switch" || device.deviceType === "hybrid";
 
@@ -376,6 +391,40 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
                   <Badge variant="outline" className="text-[10px] ml-1">Unit: VLAN {unitVlanId}</Badge>
                 )}
               </h3>
+
+              <div className="flex items-center justify-between p-2.5 rounded-lg border bg-card mb-3">
+                <div className="flex items-center gap-2">
+                  <Power className="h-3.5 w-3.5 text-muted-foreground" />
+                  <div>
+                    <span className="text-sm font-medium">Port VLAN</span>
+                    <p className="text-[10px] text-muted-foreground">Enable to manage VLANs on individual switch ports</p>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant={data.unifi.switch_vlan_enabled ? "default" : "outline"}
+                  className={`h-7 text-xs ${data.unifi.switch_vlan_enabled ? "bg-status-online/15 text-status-online border-0 hover:bg-status-online/25" : ""}`}
+                  onClick={() => {
+                    const newVal = !data.unifi.switch_vlan_enabled;
+                    if (!newVal && confirm("Disable Port VLAN? This will remove the ability to manage VLANs on switch ports.")) {
+                      switchVlanMutation.mutate({ enabled: false });
+                    } else if (newVal) {
+                      switchVlanMutation.mutate({ enabled: true });
+                    }
+                  }}
+                  disabled={switchVlanMutation.isPending}
+                  data-testid="button-toggle-switch-vlan"
+                >
+                  {switchVlanMutation.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : data.unifi.switch_vlan_enabled ? "Enabled" : "Disabled"}
+                </Button>
+              </div>
+
+              {!data.unifi.switch_vlan_enabled ? (
+                <p className="text-xs text-muted-foreground text-center py-4">Enable Port VLAN above to configure individual switch port VLANs.</p>
+              ) : (
+              <>
               <SwitchPortDiagram
                 portTable={data.unifi.port_table}
                 portOverrides={data.unifi.port_overrides || []}
@@ -493,6 +542,8 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
                     <p className="text-xs text-muted-foreground">Selected ports are disabled. Enable them to configure VLANs.</p>
                   )}
                 </div>
+              )}
+              </>
               )}
             </div>
           )}

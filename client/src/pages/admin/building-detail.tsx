@@ -745,6 +745,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
   const [editUnit, setEditUnit] = useState<Unit | null>(null);
 
   const [unitNumber, setUnitNumber] = useState("");
+  const [unitFloor, setUnitFloor] = useState<string>("");
   const [selectedNetworkId, setSelectedNetworkId] = useState("");
   const [selectedWifiNetworkId, setSelectedWifiNetworkId] = useState("");
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
@@ -911,6 +912,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
 
   const resetForm = () => {
     setUnitNumber("");
+    setUnitFloor("");
     setSelectedNetworkId("");
     setSelectedWifiNetworkId("");
     setSelectedDeviceIds([]);
@@ -919,6 +921,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
   const openEdit = (unit: Unit) => {
     setEditUnit(unit);
     setUnitNumber(unit.unitNumber);
+    setUnitFloor(unit.floor != null ? String(unit.floor) : "");
     setSelectedNetworkId(unit.networkId || "");
     const matchedWifi = unit.unifiWlanId ? controllerWifiNetworks?.find(w => w.unifiWlanId === unit.unifiWlanId) : null;
     setSelectedWifiNetworkId(matchedWifi?.id || "");
@@ -949,9 +952,23 @@ export default function BuildingDetailPage({ id }: { id: string }) {
 
   const unitFormFields = (
     <>
-      <div className="space-y-2">
-        <Label>Name <span className="text-destructive">*</span></Label>
-        <Input value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder="e.g., Unit 101" required data-testid="input-unit-number" />
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Name <span className="text-destructive">*</span></Label>
+          <Input value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder="e.g., 101" required data-testid="input-unit-number" />
+        </div>
+        <div className="space-y-2">
+          <Label>Floor</Label>
+          <Input
+            type="number"
+            min={1}
+            max={building?.floors ?? undefined}
+            value={unitFloor}
+            onChange={(e) => setUnitFloor(e.target.value)}
+            placeholder="e.g., 1"
+            data-testid="input-unit-floor"
+          />
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
@@ -1076,6 +1093,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                 createMutation.mutate({
                   buildingId: id,
                   unitNumber,
+                  floor: unitFloor ? parseInt(unitFloor, 10) : null,
                   networkId: netId,
                   vlanId: selectedNet?.vlanId ?? null,
                   unifiWlanId: selectedWifi?.unifiWlanId ?? null,
@@ -1111,6 +1129,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
                 unitId: editUnit.id,
                 data: {
                   unitNumber,
+                  floor: unitFloor ? parseInt(unitFloor, 10) : null,
                   networkId: netId,
                   vlanId: selectedNet?.vlanId ?? null,
                   unifiWlanId: selectedWifi?.unifiWlanId ?? null,

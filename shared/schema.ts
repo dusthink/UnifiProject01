@@ -61,6 +61,7 @@ export const users = pgTable("users", {
   displayName: text("display_name"),
   avatarUrl: text("avatar_url"),
   tosAcceptedAt: timestamp("tos_accepted_at"),
+  phoneNumber: text("phone_number"),
 });
 
 export const communities = pgTable("communities", {
@@ -83,6 +84,7 @@ export const units = pgTable("units", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   buildingId: varchar("building_id").notNull(),
   unitNumber: text("unit_number").notNull(),
+  floor: integer("floor"),
   networkId: varchar("network_id"),
   vlanId: integer("vlan_id"),
   wifiMode: wifiModeEnum("wifi_mode").default("ppsk"),

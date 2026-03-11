@@ -2495,21 +2495,33 @@ export async function registerRoutes(
   });
 
   app.post("/api/admin/create-tenant", requireAdmin, async (req, res) => {
-    const { username, password, unitId, displayName } = req.body;
-    if (!username || !password || !unitId) {
-      return res.status(400).json({ message: "Username, password, and unitId are required" });
+    const { firstName, lastName, email, phone, password, unitId } = req.body;
+    if (!email || !password || !unitId) {
+      return res.status(400).json({ message: "Email, password, and unitId are required" });
+    }
+    if (!firstName || !lastName) {
+      return res.status(400).json({ message: "First name and last name are required" });
     }
 
-    const existing = await storage.getUserByUsername(username);
-    if (existing) return res.status(409).json({ message: "Username already exists" });
+    const existingEmail = await storage.getUserByEmail(email);
+    if (existingEmail) return res.status(409).json({ message: "An account with this email already exists" });
+
+    const baseUsername = email.split("@")[0].toLowerCase().replace(/[^a-z0-9._-]/g, "");
+    let username = baseUsername;
+    let attempt = 1;
+    while (await storage.getUserByUsername(username)) {
+      username = `${baseUsername}${attempt++}`;
+    }
 
     const hashed = await hashPassword(password);
     const user = await storage.createUser({
       username,
+      email,
       password: hashed,
       role: "tenant",
       unitId,
-      displayName: displayName || username,
+      displayName: `${firstName} ${lastName}`.trim(),
+      phoneNumber: phone || null,
     });
 
     const { password: _, ...safeUser } = user;

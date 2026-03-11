@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -81,20 +81,20 @@ function SwitchPortDiagram({ portTable, portOverrides, networks, unitVlanId, sel
       <div className="flex flex-wrap gap-1.5">
         {ports.map((port: any) => {
           const override = overrideMap.get(port.port_idx);
-          const nativeVlan = override?.native_vlan || port.native_vlan || 1;
           const nativeNetId = override?.native_networkconf_id || port.native_networkconf_id;
           const nativeNet = nativeNetId ? networkMap.get(nativeNetId) : null;
+          const nativeVlan = nativeNet?.vlan || override?.native_vlan || port.native_vlan || 1;
           const isUp = port.up === true;
           const speed = port.speed || 0;
           const portForward = override?.forward || port.forward || "all";
           const isDisabled = portForward === "disabled";
-          const isCustom = portForward === "customize";
+          const isCustom = portForward === "customize" || portForward === "native";
           const poeEnabled = override ? override.poe_mode !== "off" : port.poe_enable;
           const isSelected = selectedPorts.has(port.port_idx);
           const isUnitVlan = unitVlanId != null && nativeVlan === unitVlanId;
           const isUplink = port.is_uplink === true;
 
-          let vlanLabel = nativeNet ? `${nativeNet.name} (${nativeVlan})` : `VLAN ${nativeVlan}`;
+          let vlanLabel = nativeNet ? `${nativeNet.name} (${nativeVlan})` : nativeVlan === 1 ? "Default" : `VLAN ${nativeVlan}`;
           if (isDisabled) vlanLabel = "Disabled";
           else if (!isCustom && nativeVlan === 1 && !nativeNet) vlanLabel = "Default";
 
@@ -177,6 +177,9 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
 }) {
   const { toast } = useToast();
   const [selectedPorts, setSelectedPorts] = useState<Set<number>>(new Set());
+  const [provisioning, setProvisioning] = useState<{ message: string; startedAt: number } | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const { data, isLoading, refetch } = useQuery<any>({
     queryKey: ["/api/devices", device.id, "details", controllerId, siteId],
     queryFn: async () => {
@@ -185,6 +188,41 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
       return res.json();
     },
   });
+
+  const startProvisioning = useCallback((message: string) => {
+    setProvisioning({ message, startedAt: Date.now() });
+    if (pollRef.current) clearInterval(pollRef.current);
+    let pollCount = 0;
+    pollRef.current = setInterval(async () => {
+      pollCount++;
+      await refetch();
+      if (pollCount >= 12) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+        setProvisioning(null);
+        toast({ title: "Provisioning complete", description: "Device configuration has been updated." });
+      }
+    }, 5000);
+  }, [refetch, toast]);
+
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!provisioning) return;
+    const tickInterval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(tickInterval);
+  }, [provisioning]);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const stopProvisioning = useCallback(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+    setProvisioning(null);
+  }, []);
 
   const togglePort = (portIdx: number) => {
     setSelectedPorts(prev => {
@@ -204,9 +242,9 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
       });
     },
     onSuccess: (_data, variables) => {
-      toast({ title: "Ports updated", description: `${variables.ports.length} port(s) set to VLAN ${variables.nativeVlan}` });
+      toast({ title: "Ports updated", description: `Sent VLAN ${variables.nativeVlan} config to controller. Device is provisioning...` });
       setSelectedPorts(new Set());
-      refetch();
+      startProvisioning(`Applying VLAN ${variables.nativeVlan} to ${variables.ports.length} port(s)...`);
     },
     onError: (err: any) => toast({ title: "Failed to update ports", description: err.message, variant: "destructive" }),
   });
@@ -220,9 +258,9 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
       });
     },
     onSuccess: (_data, variables) => {
-      toast({ title: "Ports reset", description: `${variables.ports.length} port(s) reset to default VLAN` });
+      toast({ title: "Ports reset", description: `Resetting ${variables.ports.length} port(s) to default. Device is provisioning...` });
       setSelectedPorts(new Set());
-      refetch();
+      startProvisioning(`Resetting ${variables.ports.length} port(s) to default...`);
     },
     onError: (err: any) => toast({ title: "Failed to reset ports", description: err.message, variant: "destructive" }),
   });
@@ -236,9 +274,10 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
       });
     },
     onSuccess: (_data, variables) => {
-      toast({ title: variables.enabled ? "Ports enabled" : "Ports disabled", description: `${variables.ports.length} port(s) ${variables.enabled ? "enabled" : "disabled"}` });
+      const action = variables.enabled ? "Enabling" : "Disabling";
+      toast({ title: `${action} ports`, description: `${action} ${variables.ports.length} port(s). Device is provisioning...` });
       setSelectedPorts(new Set());
-      refetch();
+      startProvisioning(`${action} ${variables.ports.length} port(s)...`);
     },
     onError: (err: any) => toast({ title: "Failed to update ports", description: err.message, variant: "destructive" }),
   });
@@ -246,10 +285,15 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
   const isAP = device.deviceType === "access_point" || device.deviceType === "hybrid";
   const isSwitch = device.deviceType === "switch" || device.deviceType === "hybrid";
 
+  const networkMap = new Map<string, any>();
+  (data?.networks || []).forEach((n: any) => networkMap.set(n._id, n));
+
   const getPortVlan = (portIdx: number) => {
     const portData = data?.unifi?.port_table?.find((p: any) => p.port_idx === portIdx);
     const override = data?.unifi?.port_overrides?.find((po: any) => po.port_idx === portIdx);
-    return override?.native_vlan || portData?.native_vlan || 1;
+    const netId = override?.native_networkconf_id || portData?.native_networkconf_id;
+    const net = netId ? networkMap.get(netId) : null;
+    return net?.vlan || override?.native_vlan || portData?.native_vlan || 1;
   };
 
   const getPortForward = (portIdx: number) => {
@@ -381,6 +425,23 @@ function DeviceConfigDialog({ device, controllerId, siteId, unitVlanId, unitNetw
                 <div className="flex items-center gap-2 p-2 rounded-lg border border-amber-500/30 bg-amber-500/5 mb-3" data-testid="port-vlan-notice">
                   <Power className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                   <p className="text-xs text-amber-600 dark:text-amber-400">Port VLAN is not enabled on this device. It will be automatically enabled when you assign a VLAN to a port.</p>
+                </div>
+              )}
+
+              {provisioning && (
+                <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-blue-500/30 bg-blue-500/5 mb-3 animate-in fade-in" data-testid="provisioning-banner">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin shrink-0" />
+                    <div>
+                      <p className="text-xs font-medium text-blue-600 dark:text-blue-400">{provisioning.message}</p>
+                      <p className="text-[10px] text-blue-500/70 mt-0.5">
+                        Device is reprovisioning. Ports will update automatically. ({Math.floor((Date.now() - provisioning.startedAt) / 1000)}s)
+                      </p>
+                    </div>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-6 text-[10px] text-blue-500 hover:text-blue-600" onClick={stopProvisioning} data-testid="button-dismiss-provisioning">
+                    Dismiss
+                  </Button>
                 </div>
               )}
 

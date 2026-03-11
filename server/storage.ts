@@ -1,7 +1,7 @@
 import { eq, and, sql, isNotNull } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers, sites, networks, wifiNetworks, controllerBackups, controllerBackupSettings,
+  users, communities, buildings, units, devices, unitDevicePorts, inviteTokens, controllers, sites, networks, wifiNetworks, controllerBackups, controllerBackupSettings, appSettings,
   type User, type InsertUser,
   type Community, type InsertCommunity,
   type Building, type InsertBuilding,
@@ -15,6 +15,7 @@ import {
   type Site, type InsertSite,
   type ControllerBackup, type InsertControllerBackup,
   type ControllerBackupSettings, type InsertControllerBackupSettings,
+  type AppSettings,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -67,6 +68,9 @@ export interface IStorage {
   markInviteTokenUsed(id: string): Promise<void>;
   getInviteTokensByUnit(unitId: string): Promise<InviteToken[]>;
   getPendingInvites(): Promise<InviteToken[]>;
+
+  getSettings(section: string): Promise<Record<string, any>>;
+  upsertSettings(section: string, data: Record<string, any>): Promise<void>;
 
   getControllers(): Promise<Controller[]>;
   getController(id: string): Promise<Controller | undefined>;
@@ -486,6 +490,23 @@ export class DatabaseStorage implements IStorage {
       await db.delete(controllerBackups).where(eq(controllerBackups.id, b.id));
     }
     return toDelete.length;
+  }
+
+  async getSettings(section: string): Promise<Record<string, any>> {
+    const [row] = await db.select().from(appSettings).where(eq(appSettings.section, section));
+    if (!row) return {};
+    try { return JSON.parse(row.data); } catch { return {}; }
+  }
+
+  async upsertSettings(section: string, data: Record<string, any>): Promise<void> {
+    const existing = await db.select().from(appSettings).where(eq(appSettings.section, section));
+    if (existing.length > 0) {
+      await db.update(appSettings)
+        .set({ data: JSON.stringify(data), updatedAt: new Date() })
+        .where(eq(appSettings.section, section));
+    } else {
+      await db.insert(appSettings).values({ section, data: JSON.stringify(data) });
+    }
   }
 }
 

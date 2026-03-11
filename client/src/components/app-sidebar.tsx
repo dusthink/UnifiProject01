@@ -11,7 +11,7 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import { Building2, Home, Network, LogOut, Wifi, Users } from "lucide-react";
+import { Building2, Home, Network, LogOut, Wifi, Users, Settings } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
@@ -20,6 +20,10 @@ const mainItems = [
   { title: "Controllers", url: "/admin/controllers", icon: Network },
   { title: "Communities", url: "/admin/communities", icon: Building2 },
   { title: "Tenants", url: "/admin/tenants", icon: Users },
+];
+
+const bottomItems = [
+  { title: "Settings", url: "/admin/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
@@ -48,6 +52,23 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild data-active={location === item.url || (item.url !== "/admin" && location.startsWith(item.url))}>
                     <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>System</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {bottomItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild data-active={location.startsWith(item.url)}>
+                    <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase()}`}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
                     </Link>

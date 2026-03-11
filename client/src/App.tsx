@@ -18,6 +18,7 @@ import CommunityDetailPage from "@/pages/admin/community-detail";
 import BuildingDetailPage from "@/pages/admin/building-detail";
 import TenantsPage from "@/pages/admin/tenants";
 import ControllersPage from "@/pages/admin/controllers";
+import SettingsPage from "@/pages/admin/settings";
 import TenantPortal from "@/pages/tenant/portal";
 import TenantRegisterPage from "@/pages/tenant/register";
 import TermsOfServicePage from "@/pages/terms-of-service";
@@ -48,6 +49,7 @@ function AdminRouter() {
       </Route>
       <Route path="/admin/tenants" component={TenantsPage} />
       <Route path="/admin/controllers" component={ControllersPage} />
+      <Route path="/admin/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>
   );

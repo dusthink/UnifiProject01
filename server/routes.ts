@@ -284,6 +284,59 @@ export async function registerRoutes(
     res.json(enriched);
   });
 
+  app.get("/api/admin/settings/:section", requireAdmin, async (req, res) => {
+    const data = await storage.getSettings(req.params.section);
+    if (req.params.section === "smtp" && data.pass) {
+      data.pass = "••••••••";
+    }
+    res.json(data);
+  });
+
+  app.put("/api/admin/settings/:section", requireAdmin, async (req, res) => {
+    const section = req.params.section;
+    const incoming = req.body as Record<string, any>;
+    if (section === "smtp" && incoming.pass === "••••••••") {
+      const existing = await storage.getSettings("smtp");
+      incoming.pass = existing.pass || "";
+    }
+    await storage.upsertSettings(section, incoming);
+    const saved = await storage.getSettings(section);
+    if (section === "smtp" && saved.pass) saved.pass = "••••••••";
+    res.json(saved);
+  });
+
+  app.get("/api/branding", async (req, res) => {
+    const data = await storage.getSettings("branding");
+    res.json(data);
+  });
+
+  app.post("/api/admin/settings/smtp/test", requireAdmin, async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, error: "Email address required" });
+    try {
+      const smtp = await storage.getSettings("smtp");
+      if (!smtp.host || !smtp.user || !smtp.pass) {
+        return res.json({ success: false, error: "SMTP not configured" });
+      }
+      const nodemailer = (await import("nodemailer")).default;
+      const transporter = nodemailer.createTransport({
+        host: smtp.host,
+        port: parseInt(smtp.port || "587", 10),
+        secure: parseInt(smtp.port || "587", 10) === 465,
+        auth: { user: smtp.user, pass: smtp.pass },
+      });
+      await transporter.sendMail({
+        from: smtp.from || smtp.user,
+        to: email,
+        subject: "UniFi MDU — SMTP Test",
+        text: "Your SMTP configuration is working correctly.",
+      });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.json({ success: false, error: err?.message || "Unknown error" });
+    }
+  });
+
   app.post("/api/auth/logout", (req, res) => {
     req.logout((err) => {
       if (err) return res.status(500).json({ message: "Logout failed" });

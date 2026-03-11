@@ -157,6 +157,13 @@ export const controllerBackupSettings = pgTable("controller_backup_settings", {
   nextBackupAt: timestamp("next_backup_at"),
 });
 
+export const appSettings = pgTable("app_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  section: text("section").notNull().unique(),
+  data: text("data").notNull().default("{}"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const inviteTokens = pgTable("invite_tokens", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   token: text("token").notNull().unique(),
@@ -227,6 +234,7 @@ export const insertUnitSchema = createInsertSchema(units).omit({ id: true });
 export const insertDeviceSchema = createInsertSchema(devices).omit({ id: true });
 export const insertUnitDevicePortSchema = createInsertSchema(unitDevicePorts).omit({ id: true });
 export const insertInviteTokenSchema = createInsertSchema(inviteTokens).omit({ id: true });
+export const insertAppSettingsSchema = createInsertSchema(appSettings).omit({ id: true });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -254,6 +262,7 @@ export type InsertControllerBackupSettings = z.infer<typeof insertControllerBack
 export type ControllerBackupSettings = typeof controllerBackupSettings.$inferSelect;
 export type InsertInviteToken = z.infer<typeof insertInviteTokenSchema>;
 export type InviteToken = typeof inviteTokens.$inferSelect;
+export type AppSettings = typeof appSettings.$inferSelect;
 
 export const loginSchema = z.object({
   username: z.string().min(1, "Username or email is required"),

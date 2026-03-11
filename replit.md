@@ -77,6 +77,16 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - `client/src/lib/auth.tsx` - Auth context provider
 - `client/src/pages/login.tsx` - Login/registration page
 - `client/src/pages/admin/controllers.tsx` - Controller management page
+- `client/src/pages/admin/settings.tsx` - Admin settings page (SMTP + branding)
+- `server/email.ts` - Email sending (reads SMTP from DB settings with env var fallback)
+
+## App Settings (DB-backed)
+- `app_settings` table stores key-value JSON blobs by `section` ("smtp", "branding")
+- `GET/PUT /api/admin/settings/:section` — admin-only settings CRUD
+- `POST /api/admin/settings/smtp/test` — sends a test email
+- `GET /api/branding` — public endpoint for branding data
+- SMTP config: host, port, user, pass, from — env vars take priority over DB settings
+- Branding: businessName, tagline, logo, address, city, state, zip, phone, email, website
 
 ## Environment Variables
 - `DATABASE_URL` - PostgreSQL connection
@@ -87,6 +97,7 @@ A multi-dwelling unit (MDU) network management application that integrates with 
 - `PROXY_PORT` - Forward proxy port (env var)
 - `PROXY_USERNAME` - Forward proxy auth username (secret)
 - `PROXY_PASSWORD` - Forward proxy auth password (secret)
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` — optional SMTP env vars (override DB settings)
 
 ## Proxy Configuration
 - All UniFi controller API requests are routed through an HTTP forward proxy via `node-fetch` + `https-proxy-agent`

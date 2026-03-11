@@ -958,7 +958,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
           <Input value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder="e.g., 101" required data-testid="input-unit-number" />
         </div>
         <div className="space-y-2">
-          <Label>Floor</Label>
+          <Label>Floor <span className="text-destructive">*</span></Label>
           <Input
             type="number"
             min={1}
@@ -966,6 +966,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
             value={unitFloor}
             onChange={(e) => setUnitFloor(e.target.value)}
             placeholder="e.g., 1"
+            required
             data-testid="input-unit-floor"
           />
         </div>
@@ -1103,7 +1104,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
               className="space-y-4"
             >
               {unitFormFields}
-              <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-unit">
+              <Button type="submit" className="w-full" disabled={createMutation.isPending || !unitFloor} data-testid="button-submit-unit">
                 {createMutation.isPending ? "Adding..." : "Add Unit"}
               </Button>
             </form>
@@ -1141,7 +1142,7 @@ export default function BuildingDetailPage({ id }: { id: string }) {
             className="space-y-4"
           >
             {unitFormFields}
-            <Button type="submit" className="w-full" disabled={updateMutation.isPending} data-testid="button-update-unit">
+            <Button type="submit" className="w-full" disabled={updateMutation.isPending || !unitFloor} data-testid="button-update-unit">
               {updateMutation.isPending ? "Updating..." : "Update Unit"}
             </Button>
           </form>

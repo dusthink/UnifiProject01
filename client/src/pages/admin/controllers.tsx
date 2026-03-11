@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Network as NetworkType, Device } from "@shared/schema";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type DeviceType = "switch" | "access_point" | "hybrid" | "gateway" | "other";
 
@@ -2050,6 +2050,11 @@ export default function ControllersPage() {
     enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "devices",
   });
 
+  const { data: ssidCounts } = useQuery<Record<string, { count: number; wlanIds: string[] }>>({
+    queryKey: ["/api/devices/ssid-counts"],
+    enabled: !!expandedCtrlId && !!expandedSiteId && siteTab === "devices",
+  });
+
   const { data: wifiNetworks, isLoading: wifiLoading } = useQuery<any[]>({
     queryKey: ["/api/wifi-networks/controller", expandedCtrlId, "site", expandedSiteId],
     queryFn: async () => {
@@ -3854,11 +3859,30 @@ export default function ControllersPage() {
                                                   </div>
                                                 </TableCell>
                                                 <TableCell>
-                                                  <div className="flex items-center gap-1.5">
+                                                  <div className="flex items-center gap-1.5 flex-wrap">
                                                     <DeviceTypeBadge type={(dev.deviceType as DeviceType) || "other"} />
                                                     {dev.portCount && ((dev.deviceType === "switch" || dev.deviceType === "hybrid") ? (
                                                       <Badge variant="outline" className="text-xs">{dev.portCount}p</Badge>
                                                     ) : null)}
+                                                    {(dev.deviceType === "access_point" || dev.deviceType === "hybrid") && ssidCounts?.[dev.id] && (() => {
+                                                      const { count } = ssidCounts[dev.id];
+                                                      const atLimit = count >= 4;
+                                                      return (
+                                                        <TooltipProvider delayDuration={200}>
+                                                          <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                              <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full border cursor-default ${atLimit ? "bg-destructive/10 text-destructive border-destructive/30" : "bg-primary/10 text-primary border-primary/20"}`} data-testid={`badge-ssid-count-${dev.id}`}>
+                                                                <Wifi className="h-2.5 w-2.5" />
+                                                                {count}/4
+                                                              </span>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent side="top" className="text-xs max-w-[200px]">
+                                                              {atLimit ? `At SSID limit (4/4). Cannot assign to units with WiFi.` : `Broadcasting ${count} of 4 allowed SSIDs`}
+                                                            </TooltipContent>
+                                                          </Tooltip>
+                                                        </TooltipProvider>
+                                                      );
+                                                    })()}
                                                   </div>
                                                 </TableCell>
                                                 <TableCell>

@@ -368,7 +368,7 @@ export async function registerRoutes(
   app.post("/api/units", requireAdmin, async (req, res) => {
     const parsed = insertUnitSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
-    const data = { ...parsed.data, tenantName: null as string | null, tenantEmail: null as string | null | undefined };
+    const data = { ...parsed.data, floor: req.body.floor != null ? parseInt(req.body.floor, 10) : null, tenantName: null as string | null, tenantEmail: null as string | null | undefined };
     if (data.tenantId) {
       const tenant = await storage.getUser(data.tenantId);
       if (!tenant || tenant.role !== "tenant") {
@@ -390,6 +390,9 @@ export async function registerRoutes(
 
   app.patch("/api/units/:id", requireAdmin, async (req, res) => {
     const updateData = { ...req.body };
+    if ("floor" in updateData) {
+      updateData.floor = updateData.floor != null ? parseInt(updateData.floor, 10) : null;
+    }
     delete updateData.tenantName;
     delete updateData.tenantEmail;
     if ("tenantId" in updateData) {

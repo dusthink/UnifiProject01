@@ -3329,56 +3329,76 @@ export default function ControllersPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleTestSaved(ctrl.id)}
-                      disabled={testingId === ctrl.id}
-                      data-testid={`button-test-saved-controller-${ctrl.id}`}
-                    >
-                      <RefreshCw className={`h-4 w-4 mr-1 ${testingId === ctrl.id ? "animate-spin" : ""}`} />
-                      {testingId === ctrl.id ? "Testing..." : "Test"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={expandedCtrlId === ctrl.id ? "default" : "outline"}
-                      onClick={() => toggleController(ctrl.id)}
-                      data-testid={`button-expand-controller-${ctrl.id}`}
-                    >
-                      <Globe className="h-4 w-4 mr-1" />
-                      Sites
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setBackupDialogCtrl(ctrl)}
-                      data-testid={`button-backups-controller-${ctrl.id}`}
-                    >
-                      <HardDrive className="h-4 w-4 mr-1" />
-                      Backups
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setEditController(ctrl)}
-                      data-testid={`button-edit-controller-${ctrl.id}`}
-                    >
-                      <Pencil className="h-4 w-4 mr-1" />
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        if (confirm("Remove this controller?")) {
-                          deleteMutation.mutate(ctrl.id);
-                        }
-                      }}
-                      data-testid={`button-delete-controller-${ctrl.id}`}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                  <div className="flex gap-1.5 shrink-0 items-center">
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8"
+                            onClick={() => handleTestSaved(ctrl.id)}
+                            disabled={testingId === ctrl.id}
+                            data-testid={`button-test-saved-controller-${ctrl.id}`}
+                          >
+                            <RefreshCw className={`h-3.5 w-3.5 ${testingId === ctrl.id ? "animate-spin" : ""}`} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Test connection</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8"
+                            onClick={() => setBackupDialogCtrl(ctrl)}
+                            data-testid={`button-backups-controller-${ctrl.id}`}
+                          >
+                            <HardDrive className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Backups</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8"
+                            onClick={() => setEditController(ctrl)}
+                            data-testid={`button-edit-controller-${ctrl.id}`}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Edit</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            onClick={() => {
+                              if (confirm("Remove this controller?")) {
+                                deleteMutation.mutate(ctrl.id);
+                              }
+                            }}
+                            data-testid={`button-delete-controller-${ctrl.id}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Remove controller</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 </div>
 
@@ -3389,12 +3409,26 @@ export default function ControllersPage() {
                   </div>
                 )}
 
+                <button
+                  className={`mt-4 w-full flex items-center justify-between px-4 py-3 rounded-lg border transition-all ${expandedCtrlId === ctrl.id ? "bg-primary/5 border-primary/30 text-primary" : "hover:bg-muted/60 border-border text-foreground"}`}
+                  onClick={() => toggleController(ctrl.id)}
+                  data-testid={`button-expand-controller-${ctrl.id}`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Globe className={`h-4 w-4 ${expandedCtrlId === ctrl.id ? "text-primary" : "text-muted-foreground"}`} />
+                    <span className="text-sm font-medium">Sites</span>
+                    {expandedCtrlId === ctrl.id && sites && sites.length > 0 && (
+                      <Badge variant="secondary" className="text-xs h-5 px-1.5">{sites.length}</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <span className="text-xs">{expandedCtrlId === ctrl.id ? "Collapse" : "Explore →"}</span>
+                    <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${expandedCtrlId === ctrl.id ? "rotate-0" : "-rotate-90"}`} />
+                  </div>
+                </button>
+
                 {expandedCtrlId === ctrl.id && (
-                  <div className="mt-4 pt-4 border-t">
-                    <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-                      <Globe className="h-4 w-4" />
-                      Sites
-                    </h4>
+                  <div className="mt-3">
                     {sites && sites.length > 0 ? (
                       <div className="space-y-2">
                         {sites.map((site: any) => {

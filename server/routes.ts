@@ -1185,6 +1185,7 @@ export async function registerRoutes(
           const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
           const raw = await client.getDeviceDetail(siteId, device.macAddress);
           if (raw) {
+            console.log(`[debug-raw] config_network:`, JSON.stringify(raw.config_network), `mgmt_network_id:`, raw.mgmt_network_id, `dot1x_portctrl_enabled:`, raw.dot1x_portctrl_enabled, `network_override_enabled:`, raw.network_override_enabled, `switch_vlan_enabled:`, raw.switch_vlan_enabled);
             unifi = {
               name: raw.name,
               model: raw.model,

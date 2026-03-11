@@ -1185,7 +1185,6 @@ export async function registerRoutes(
           const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
           const raw = await client.getDeviceDetail(siteId, device.macAddress);
           if (raw) {
-            console.log(`[debug-raw] config_network:`, JSON.stringify(raw.config_network), `mgmt_network_id:`, raw.mgmt_network_id, `dot1x_portctrl_enabled:`, raw.dot1x_portctrl_enabled, `network_override_enabled:`, raw.network_override_enabled, `switch_vlan_enabled:`, raw.switch_vlan_enabled);
             unifi = {
               name: raw.name,
               model: raw.model,
@@ -1294,25 +1293,6 @@ export async function registerRoutes(
       if (!controller?.isVerified) return res.status(400).json({ message: "Controller not verified" });
       const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
       await client.setPortProfiles(siteId, device.unifiDeviceId, device.macAddress, ports.map((p: any) => ({ portIdx: p.portIdx, nativeVlan: p.nativeVlan })));
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.post("/api/devices/:id/set-switch-vlan", requireAdmin, async (req, res) => {
-    try {
-      const device = await storage.getDevice(req.params.id);
-      if (!device) return res.status(404).json({ message: "Device not found" });
-      const { controllerId, siteId = "default", enabled } = req.body;
-      if (!controllerId || typeof enabled !== "boolean") {
-        return res.status(400).json({ message: "controllerId and enabled (boolean) are required" });
-      }
-      if (!device.unifiDeviceId) return res.status(400).json({ message: "Device has no UniFi device ID" });
-      const controller = await storage.getController(controllerId);
-      if (!controller?.isVerified) return res.status(400).json({ message: "Controller not verified" });
-      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
-      await client.setSwitchVlanEnabled(siteId, device.unifiDeviceId, device.macAddress, enabled);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

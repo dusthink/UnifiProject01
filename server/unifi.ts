@@ -601,6 +601,11 @@ export class UnifiClient {
       try {
         console.log(`[unifi] Trying port update via ${ep.method} ${ep.path}`);
         const result = await this.request(ep.path, ep.method, ep.body);
+        if (result?.data && Array.isArray(result.data) && result.data.length === 0) {
+          console.log(`[unifi] Port update via ${ep.path} returned empty data, trying next method`);
+          continue;
+        }
+        console.log(`[unifi] Port update succeeded via ${ep.path}`);
         await this.request(`/api/s/${siteId}/cmd/devmgr`, "POST", { cmd: "force-provision", mac: deviceMac }).catch(() => {});
         return result;
       } catch (err: any) {
@@ -659,6 +664,31 @@ export class UnifiClient {
         portOverrides[existingIdx] = { ...portOverrides[existingIdx], ...portConfig };
       } else {
         portOverrides.push(portConfig);
+      }
+    }
+
+    return this.updateDevicePortOverrides(siteId, deviceId, deviceMac, portOverrides);
+  }
+
+  async setPortEnabled(siteId: string, deviceId: string, deviceMac: string, ports: { portIdx: number; enabled: boolean }[]): Promise<any> {
+    const allDevices = await this.getDevices(siteId);
+    const device = allDevices.find((d: any) => d._id === deviceId);
+    if (!device) throw new Error("Device not found on controller");
+
+    const portOverrides = [...(device.port_overrides || [])];
+
+    for (const { portIdx, enabled } of ports) {
+      const existingIdx = portOverrides.findIndex((p: any) => p.port_idx === portIdx);
+      if (existingIdx >= 0) {
+        portOverrides[existingIdx] = {
+          ...portOverrides[existingIdx],
+          forward: enabled ? "customize" : "disabled",
+        };
+      } else {
+        portOverrides.push({
+          port_idx: portIdx,
+          forward: enabled ? "customize" : "disabled",
+        });
       }
     }
 

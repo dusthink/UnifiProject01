@@ -1185,6 +1185,7 @@ export async function registerRoutes(
           const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
           const raw = await client.getDeviceDetail(siteId, device.macAddress);
           if (raw) {
+            console.log(`[debug] switch_vlan_enabled:`, raw.switch_vlan_enabled, `config_network:`, JSON.stringify(raw.config_network), `switch_caps:`, JSON.stringify(raw.switch_caps));
             unifi = {
               name: raw.name,
               model: raw.model,
@@ -1292,6 +1293,30 @@ export async function registerRoutes(
       if (!controller?.isVerified) return res.status(400).json({ message: "Controller not verified" });
       const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
       await client.setPortProfiles(siteId, device.unifiDeviceId, device.macAddress, ports.map((p: any) => ({ portIdx: p.portIdx, nativeVlan: p.nativeVlan })));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/devices/:id/set-port-enabled", requireAdmin, async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) return res.status(404).json({ message: "Device not found" });
+      const { controllerId, siteId = "default", ports } = req.body;
+      if (!controllerId || !Array.isArray(ports) || ports.length === 0) {
+        return res.status(400).json({ message: "controllerId and ports array are required" });
+      }
+      for (const p of ports) {
+        if (typeof p.portIdx !== "number" || p.portIdx < 1 || typeof p.enabled !== "boolean") {
+          return res.status(400).json({ message: "Each port must have a valid portIdx (>=1) and enabled (boolean)" });
+        }
+      }
+      if (!device.unifiDeviceId) return res.status(400).json({ message: "Device has no UniFi device ID" });
+      const controller = await storage.getController(controllerId);
+      if (!controller?.isVerified) return res.status(400).json({ message: "Controller not verified" });
+      const client = getUnifiClient(controller.id, controller.url, controller.username, controller.password);
+      await client.setPortEnabled(siteId, device.unifiDeviceId, device.macAddress, ports);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

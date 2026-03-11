@@ -8,25 +8,37 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Users, Plus, Copy, Check, Link, Mail, Clock } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Users, Plus, Copy, Check, Link, Mail, Clock, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Community, Building, Unit } from "@shared/schema";
 
+type UnitWithFloor = Unit & { floor?: number | null };
+
 export default function TenantsPage() {
   const { toast } = useToast();
+
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
-  const [username, setUsername] = useState("");
+
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
   const [selectedCommunity, setSelectedCommunity] = useState("");
   const [selectedBuilding, setSelectedBuilding] = useState("");
   const [selectedUnit, setSelectedUnit] = useState("");
+
+  const [inviteCommunity, setInviteCommunity] = useState("");
+  const [inviteBuilding, setInviteBuilding] = useState("");
+  const [inviteUnit, setInviteUnit] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
-  const [createdCreds, setCreatedCreds] = useState<{ username: string; password: string } | null>(null);
+
+  const [createdInfo, setCreatedInfo] = useState<{ name: string; email: string; password: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -42,7 +54,7 @@ export default function TenantsPage() {
     enabled: !!selectedCommunity,
   });
 
-  const { data: units } = useQuery<Unit[]>({
+  const { data: units } = useQuery<UnitWithFloor[]>({
     queryKey: ["/api/buildings", selectedBuilding, "units"],
     queryFn: async () => {
       if (!selectedBuilding) return [];
@@ -52,17 +64,44 @@ export default function TenantsPage() {
     enabled: !!selectedBuilding,
   });
 
-  const { data: pendingInvites, isLoading: invitesLoading } = useQuery<any[]>({
+  const { data: inviteBuildings } = useQuery<Building[]>({
+    queryKey: ["/api/communities", inviteCommunity, "buildings"],
+    queryFn: async () => {
+      if (!inviteCommunity) return [];
+      const res = await fetch(`/api/communities/${inviteCommunity}/buildings`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!inviteCommunity,
+  });
+
+  const { data: inviteUnits } = useQuery<UnitWithFloor[]>({
+    queryKey: ["/api/buildings", inviteBuilding, "units"],
+    queryFn: async () => {
+      if (!inviteBuilding) return [];
+      const res = await fetch(`/api/buildings/${inviteBuilding}/units`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!inviteBuilding,
+  });
+
+  const { data: pendingInvites } = useQuery<any[]>({
     queryKey: ["/api/admin/invites"],
   });
+
+  const selectedUnitData = units?.find((u) => u.id === selectedUnit);
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await apiRequest("POST", "/api/admin/create-tenant", data);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to create tenant");
+      }
       return res.json();
     },
     onSuccess: () => {
-      setCreatedCreds({ username, password });
+      setCreatedInfo({ name: `${firstName} ${lastName}`.trim(), email, password });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/invites"] });
       toast({ title: "Tenant account created" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -89,8 +128,8 @@ export default function TenantsPage() {
   };
 
   const handleCopy = () => {
-    if (!createdCreds) return;
-    navigator.clipboard.writeText(`Username: ${createdCreds.username}\nPassword: ${createdCreds.password}`);
+    if (!createdInfo) return;
+    navigator.clipboard.writeText(`Name: ${createdInfo.name}\nEmail: ${createdInfo.email}\nPassword: ${createdInfo.password}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -102,10 +141,13 @@ export default function TenantsPage() {
   };
 
   const resetCreateDialog = () => {
-    setCreatedCreds(null);
-    setUsername("");
+    setCreatedInfo(null);
+    setFirstName("");
+    setLastName("");
+    setEmail("");
+    setPhone("");
     setPassword("");
-    setDisplayName("");
+    setShowPassword(false);
     setSelectedCommunity("");
     setSelectedBuilding("");
     setSelectedUnit("");
@@ -114,58 +156,89 @@ export default function TenantsPage() {
   const resetInviteDialog = () => {
     setGeneratedLink("");
     setInviteEmail("");
-    setSelectedCommunity("");
-    setSelectedBuilding("");
-    setSelectedUnit("");
+    setInviteCommunity("");
+    setInviteBuilding("");
+    setInviteUnit("");
   };
 
-  const UnitSelector = () => (
-    <>
-      <div className="space-y-2">
-        <Label>Community</Label>
-        <Select value={selectedCommunity} onValueChange={(v) => { setSelectedCommunity(v); setSelectedBuilding(""); setSelectedUnit(""); }}>
-          <SelectTrigger data-testid="select-tenant-community">
-            <SelectValue placeholder="Select community" />
-          </SelectTrigger>
-          <SelectContent>
-            {communities?.map((c) => (
-              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      {selectedCommunity && buildings && buildings.length > 0 && (
+  const CascadeSelector = ({
+    community, setComm,
+    building, setBldg,
+    unit, setUnit,
+    communityBuildings,
+    buildingUnits,
+    testPrefix = "tenant",
+  }: {
+    community: string; setComm: (v: string) => void;
+    building: string; setBldg: (v: string) => void;
+    unit: string; setUnit: (v: string) => void;
+    communityBuildings?: Building[];
+    buildingUnits?: UnitWithFloor[];
+    testPrefix?: string;
+  }) => {
+    const selectedUnitObj = buildingUnits?.find((u) => u.id === unit);
+    return (
+      <>
         <div className="space-y-2">
-          <Label>Building</Label>
-          <Select value={selectedBuilding} onValueChange={(v) => { setSelectedBuilding(v); setSelectedUnit(""); }}>
-            <SelectTrigger data-testid="select-tenant-building">
-              <SelectValue placeholder="Select building" />
+          <Label>Community <span className="text-destructive">*</span></Label>
+          <Select value={community} onValueChange={(v) => { setComm(v); setBldg(""); setUnit(""); }}>
+            <SelectTrigger data-testid={`select-${testPrefix}-community`}>
+              <SelectValue placeholder="Select community" />
             </SelectTrigger>
             <SelectContent>
-              {buildings.map((b) => (
-                <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+              {communities?.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-      )}
-      {selectedBuilding && units && units.length > 0 && (
-        <div className="space-y-2">
-          <Label>Unit</Label>
-          <Select value={selectedUnit} onValueChange={setSelectedUnit}>
-            <SelectTrigger data-testid="select-tenant-unit">
-              <SelectValue placeholder="Select unit" />
-            </SelectTrigger>
-            <SelectContent>
-              {units.map((u) => (
-                <SelectItem key={u.id} value={u.id}>Unit {u.unitNumber}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-    </>
-  );
+
+        {community && (
+          <div className="space-y-2">
+            <Label>Building <span className="text-destructive">*</span></Label>
+            <Select value={building} onValueChange={(v) => { setBldg(v); setUnit(""); }}>
+              <SelectTrigger data-testid={`select-${testPrefix}-building`}>
+                <SelectValue placeholder="Select building" />
+              </SelectTrigger>
+              <SelectContent>
+                {communityBuildings?.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {building && (
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Unit <span className="text-destructive">*</span></Label>
+              <Select value={unit} onValueChange={setUnit}>
+                <SelectTrigger data-testid={`select-${testPrefix}-unit`}>
+                  <SelectValue placeholder="Select unit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {buildingUnits?.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.unitNumber}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Floor</Label>
+              <Input
+                readOnly
+                value={selectedUnitObj?.floor != null ? String(selectedUnitObj.floor) : ""}
+                placeholder="Auto-filled"
+                className="bg-muted/50 text-muted-foreground cursor-default"
+                data-testid={`input-${testPrefix}-floor`}
+              />
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -175,6 +248,8 @@ export default function TenantsPage() {
           <p className="text-muted-foreground text-sm mt-1">Create accounts or send invite links for tenant self-registration</p>
         </div>
         <div className="flex gap-2">
+
+          {/* Invite dialog */}
           <Dialog open={inviteDialogOpen} onOpenChange={(o) => { setInviteDialogOpen(o); if (!o) resetInviteDialog(); }}>
             <DialogTrigger asChild>
               <Button variant="outline" data-testid="button-invite-tenant">
@@ -213,7 +288,14 @@ export default function TenantsPage() {
                   <p className="text-sm text-muted-foreground">
                     Generate a link that a tenant can use to self-register and get access to their unit's portal.
                   </p>
-                  <UnitSelector />
+                  <CascadeSelector
+                    community={inviteCommunity} setComm={setInviteCommunity}
+                    building={inviteBuilding} setBldg={setInviteBuilding}
+                    unit={inviteUnit} setUnit={setInviteUnit}
+                    communityBuildings={inviteBuildings}
+                    buildingUnits={inviteUnits}
+                    testPrefix="invite"
+                  />
                   <div className="space-y-2">
                     <Label>Tenant Email (optional)</Label>
                     <Input
@@ -229,8 +311,8 @@ export default function TenantsPage() {
                   </div>
                   <Button
                     className="w-full"
-                    disabled={!selectedUnit || inviteMutation.isPending}
-                    onClick={() => inviteMutation.mutate({ unitId: selectedUnit, email: inviteEmail || undefined })}
+                    disabled={!inviteUnit || inviteMutation.isPending}
+                    onClick={() => inviteMutation.mutate({ unitId: inviteUnit, email: inviteEmail || undefined })}
                     data-testid="button-generate-invite"
                   >
                     {inviteMutation.isPending ? "Generating..." : "Generate Invite Link"}
@@ -240,6 +322,7 @@ export default function TenantsPage() {
             </DialogContent>
           </Dialog>
 
+          {/* Create tenant dialog */}
           <Dialog open={createDialogOpen} onOpenChange={(o) => { setCreateDialogOpen(o); if (!o) resetCreateDialog(); }}>
             <DialogTrigger asChild>
               <Button data-testid="button-create-tenant">
@@ -247,15 +330,17 @@ export default function TenantsPage() {
                 Create Tenant
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>{createdCreds ? "Tenant Created" : "Create Tenant Account"}</DialogTitle>
+                <DialogTitle>{createdInfo ? "Tenant Created" : "Create Tenant Account"}</DialogTitle>
               </DialogHeader>
-              {createdCreds ? (
+
+              {createdInfo ? (
                 <div className="space-y-4">
                   <div className="p-4 rounded-md bg-accent/50 space-y-2">
-                    <p className="text-sm"><span className="text-muted-foreground">Username:</span> <strong>{createdCreds.username}</strong></p>
-                    <p className="text-sm"><span className="text-muted-foreground">Password:</span> <strong>{createdCreds.password}</strong></p>
+                    <p className="text-sm"><span className="text-muted-foreground">Name:</span> <strong>{createdInfo.name}</strong></p>
+                    <p className="text-sm"><span className="text-muted-foreground">Email:</span> <strong>{createdInfo.email}</strong></p>
+                    <p className="text-sm"><span className="text-muted-foreground">Password:</span> <strong>{createdInfo.password}</strong></p>
                   </div>
                   <p className="text-xs text-muted-foreground">Share these credentials with the tenant. They can use them to log in to the tenant portal.</p>
                   <div className="flex gap-2">
@@ -272,31 +357,109 @@ export default function TenantsPage() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    createMutation.mutate({ username, password, unitId: selectedUnit, displayName: displayName || username });
+                    createMutation.mutate({ firstName, lastName, email, phone: phone || undefined, password, unitId: selectedUnit });
                   }}
                   className="space-y-4"
                 >
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Username</Label>
-                      <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="tenant_101" required data-testid="input-tenant-username" />
+                      <Label htmlFor="firstName">First Name <span className="text-destructive">*</span></Label>
+                      <Input
+                        id="firstName"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        placeholder="Jane"
+                        required
+                        data-testid="input-tenant-first-name"
+                      />
                     </div>
                     <div className="space-y-2">
-                      <Label>Display Name</Label>
-                      <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="John Doe" data-testid="input-tenant-display" />
+                      <Label htmlFor="lastName">Last Name <span className="text-destructive">*</span></Label>
+                      <Input
+                        id="lastName"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        placeholder="Smith"
+                        required
+                        data-testid="input-tenant-last-name"
+                      />
                     </div>
                   </div>
+
                   <div className="space-y-2">
-                    <Label>Password</Label>
+                    <Label htmlFor="tenantEmail">Email Address <span className="text-destructive">*</span></Label>
+                    <Input
+                      id="tenantEmail"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="jane.smith@example.com"
+                      required
+                      data-testid="input-tenant-email"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="tenantPhone">Phone Number</Label>
+                    <Input
+                      id="tenantPhone"
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="(555) 000-0000"
+                      data-testid="input-tenant-phone"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="tenantPassword">Password <span className="text-destructive">*</span></Label>
                     <div className="flex gap-2">
-                      <Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 8 characters" required data-testid="input-tenant-password" />
+                      <div className="relative flex-1">
+                        <Input
+                          id="tenantPassword"
+                          type={showPassword ? "text" : "password"}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="Min 8 characters"
+                          required
+                          minLength={8}
+                          className="pr-10"
+                          data-testid="input-tenant-password"
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setShowPassword(!showPassword)}
+                          tabIndex={-1}
+                          data-testid="button-toggle-password"
+                        >
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
                       <Button type="button" variant="secondary" onClick={generatePassword} data-testid="button-generate-pw">
                         Generate
                       </Button>
                     </div>
                   </div>
-                  <UnitSelector />
-                  <Button type="submit" className="w-full" disabled={createMutation.isPending || !selectedUnit} data-testid="button-submit-tenant">
+
+                  <div className="border-t pt-4 space-y-4">
+                    <p className="text-sm font-medium text-muted-foreground">Unit Assignment</p>
+                    <CascadeSelector
+                      community={selectedCommunity} setComm={setSelectedCommunity}
+                      building={selectedBuilding} setBldg={setSelectedBuilding}
+                      unit={selectedUnit} setUnit={setSelectedUnit}
+                      communityBuildings={buildings}
+                      buildingUnits={units}
+                      testPrefix="tenant"
+                    />
+                  </div>
+
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={createMutation.isPending || !selectedUnit || !firstName || !lastName || !email || !password}
+                    data-testid="button-submit-tenant"
+                  >
                     {createMutation.isPending ? "Creating..." : "Create Tenant Account"}
                   </Button>
                 </form>

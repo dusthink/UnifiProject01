@@ -595,42 +595,67 @@ export class UnifiClient {
     return devices.find((d: any) => d.mac?.toLowerCase() === macLower);
   }
 
+  private sanitizePortOverride(po: any): Record<string, any> {
+    const allowed = [
+      "port_idx", "name", "forward", "native_networkconf_id", "native_vlan",
+      "excluded_networkconf_ids", "tagged_vlan_mgmt", "portconf_id",
+      "poe_mode", "autoneg", "full_duplex", "speed",
+      "setting_preference", "aggregate_num_ports",
+    ];
+    const result: Record<string, any> = {};
+    for (const key of allowed) {
+      if (po[key] !== undefined) result[key] = po[key];
+    }
+    return result;
+  }
+
   private async updateDevicePortOverrides(siteId: string, controllerDeviceId: string, deviceMac: string, portOverrides: any[]): Promise<any> {
     const allDevices = await this.getDevices(siteId);
     const device = this.findDeviceByMac(allDevices, deviceMac);
     const actualId = device?._id || controllerDeviceId;
 
-    const body: Record<string, any> = { port_overrides: portOverrides };
+    const sanitized = portOverrides.map(po => this.sanitizePortOverride(po));
+    const body: Record<string, any> = { port_overrides: sanitized };
     if (!device?.switch_vlan_enabled) {
       body.switch_vlan_enabled = true;
       console.log(`[unifi] Auto-enabling switch_vlan_enabled on device ${actualId}`);
     }
 
-    const endpoints = [
-      { path: `/api/s/${siteId}/rest/device/${actualId}`, method: "PUT" as const, body },
-      { path: `/v2/api/site/${siteId}/device/${actualId}`, method: "PUT" as const, body },
-      { path: `/api/s/${siteId}/cmd/devmgr`, method: "POST" as const, body: { cmd: "update-device", device: { _id: actualId, ...body } } },
+    console.log(`[unifi] Updating device ${actualId} (type: ${device?.type}) with ${sanitized.length} port overrides`);
+
+    const minimalOverrides = sanitized.map(po => {
+      const min: Record<string, any> = { port_idx: po.port_idx };
+      if (po.forward) min.forward = po.forward;
+      if (po.native_networkconf_id) min.native_networkconf_id = po.native_networkconf_id;
+      if (po.tagged_vlan_mgmt) min.tagged_vlan_mgmt = po.tagged_vlan_mgmt;
+      if (po.excluded_networkconf_ids) min.excluded_networkconf_ids = po.excluded_networkconf_ids;
+      if (po.name) min.name = po.name;
+      if (po.poe_mode) min.poe_mode = po.poe_mode;
+      return min;
+    });
+
+    const attempts = [
+      { label: "PUT (minimal overrides only)", body: { port_overrides: minimalOverrides } },
+      { label: "PUT (sanitized + switch_vlan)", body },
+      { label: "PUT (raw overrides)", body: { port_overrides: portOverrides } },
     ];
 
     let lastError: Error | null = null;
-    for (const ep of endpoints) {
+    for (const attempt of attempts) {
       try {
-        console.log(`[unifi] Trying port update via ${ep.method} ${ep.path}`, JSON.stringify(ep.body).substring(0, 500));
-        const result = await this.request(ep.path, ep.method, ep.body);
-        const resultData = result?.data;
-        if (resultData && Array.isArray(resultData) && resultData.length > 0) {
-          console.log(`[unifi] Port update succeeded via ${ep.path}, device returned with ${resultData[0]?.port_overrides?.length || 0} port overrides`);
-        } else {
-          console.log(`[unifi] Port update via ${ep.path} returned:`, JSON.stringify(result?.meta || result).substring(0, 200));
-        }
+        console.log(`[unifi] Trying ${attempt.label}`, JSON.stringify(attempt.body).substring(0, 500));
+        const result = await this.request(`/api/s/${siteId}/rest/device/${actualId}`, "PUT", attempt.body);
+        const returnedOverrides = result?.data?.[0]?.port_overrides?.length;
+        console.log(`[unifi] ${attempt.label} succeeded, returned ${returnedOverrides || 0} port overrides`);
         await this.request(`/api/s/${siteId}/cmd/devmgr`, "POST", { cmd: "force-provision", mac: deviceMac }).catch(() => {});
         return result;
       } catch (err: any) {
-        console.log(`[unifi] Port update failed via ${ep.path}: ${err.message}`);
+        console.log(`[unifi] ${attempt.label} failed: ${err.message}`);
         lastError = err;
       }
     }
-    throw lastError || new Error("Failed to update port overrides");
+
+    throw lastError || new Error("Failed to update port overrides - all methods failed");
   }
 
   private buildPortConfig(portIdx: number, nativeVlan: number, networkConfId: string, allNetworkIds: string[]): Record<string, any> {

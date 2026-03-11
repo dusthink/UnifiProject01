@@ -498,33 +498,38 @@ export async function registerRoutes(
       const managedGroupName = `managed-${wlan.name}`;
       let managedGroup = apGroups.find((g: any) => g.name === managedGroupName);
 
+      const unassignedGroup = apGroups.find((g: any) => g.name === "_Unassigned-APs");
+      const unassignedGroupId = unassignedGroup?._id;
+
       if (action === "add") {
+        let managedGroupId: string;
         if (!managedGroup) {
           const result = await client.createApGroup(siteId, managedGroupName, [mac]);
-          const newGroupId = result?.data?.[0]?._id || result?._id;
-          if (!newGroupId) {
+          managedGroupId = result?.data?.[0]?._id || result?._id;
+          if (!managedGroupId) {
             console.log(`[unifi] Failed to create managed AP group "${managedGroupName}"`);
             return;
           }
-          const currentApGroupIds = wlan.ap_group_ids || [];
-          if (!currentApGroupIds.includes(newGroupId)) {
-            await client.updateWlan(siteId, unit.unifiWlanId, {
-              ap_group_ids: [...currentApGroupIds, newGroupId],
-            });
-          }
           console.log(`[unifi] Created AP group "${managedGroupName}" with AP ${mac} for WLAN "${wlan.name}"`);
         } else {
+          managedGroupId = managedGroup._id;
           const currentMacs: string[] = (managedGroup.device_macs || []).map((m: string) => m.toLowerCase());
           if (!currentMacs.includes(mac)) {
             const newMacs = [...(managedGroup.device_macs || []), mac];
-            await client.updateApGroup(siteId, managedGroup._id, { name: managedGroupName, device_macs: newMacs });
+            await client.updateApGroup(siteId, managedGroupId, { name: managedGroupName, device_macs: newMacs });
             console.log(`[unifi] Added AP ${mac} to AP group "${managedGroupName}" for WLAN "${wlan.name}"`);
           }
-          const currentApGroupIds = wlan.ap_group_ids || [];
-          if (!currentApGroupIds.includes(managedGroup._id)) {
-            await client.updateWlan(siteId, unit.unifiWlanId, {
-              ap_group_ids: [...currentApGroupIds, managedGroup._id],
-            });
+        }
+        const currentApGroupIds = wlan.ap_group_ids || [];
+        const needsUpdate = !currentApGroupIds.includes(managedGroupId) ||
+          (unassignedGroupId && currentApGroupIds.includes(unassignedGroupId));
+        if (needsUpdate) {
+          const updatedIds = currentApGroupIds
+            .filter((id: string) => id !== unassignedGroupId)
+            .concat(currentApGroupIds.includes(managedGroupId) ? [] : [managedGroupId]);
+          await client.updateWlan(siteId, unit.unifiWlanId, { ap_group_ids: updatedIds });
+          if (unassignedGroupId && currentApGroupIds.includes(unassignedGroupId)) {
+            console.log(`[unifi] Removed _Unassigned-APs group from WLAN "${wlan.name}" ap_group_ids`);
           }
         }
         await client.forceProvision(siteId, mac);

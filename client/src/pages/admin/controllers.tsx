@@ -3710,6 +3710,7 @@ export default function ControllersPage() {
                                           <TableBody>
                                             {apGroups.map((group: any) => {
                                               const wifiCount = wifiNetworks?.filter((w: any) => w.apGroupIds?.includes(group._id) || (w.ap_group_ids && w.ap_group_ids.includes(group._id))).length || 0;
+                                              const isSystemGroup = group.attr_no_delete || group.name === "_Unassigned-APs" || group.name.startsWith("managed-");
                                               return (
                                                 <TableRow key={group._id} data-testid={`row-apgroup-${group._id}`}>
                                                   <TableCell className="font-medium">
@@ -3718,6 +3719,9 @@ export default function ControllersPage() {
                                                       {group.name}
                                                       {group.attr_no_delete && (
                                                         <Badge variant="secondary" className="text-xs">Default</Badge>
+                                                      )}
+                                                      {!group.attr_no_delete && isSystemGroup && (
+                                                        <Badge variant="outline" className="text-xs border-blue-500/30 text-blue-600 dark:text-blue-400">System</Badge>
                                                       )}
                                                     </div>
                                                   </TableCell>
@@ -3731,27 +3735,29 @@ export default function ControllersPage() {
                                                   </TableCell>
                                                   <TableCell className="text-right">
                                                     <div className="flex items-center justify-end gap-1">
-                                                      <Button
-                                                        size="icon"
-                                                        variant="ghost"
-                                                        onClick={() => setEditApGroup({ id: group._id, name: group.name, deviceMacs: group.device_macs || [] })}
-                                                        data-testid={`button-edit-apgroup-${group._id}`}
-                                                      >
-                                                        <Pencil className="h-4 w-4 text-muted-foreground" />
-                                                      </Button>
-                                                      {!group.attr_no_delete && (
-                                                        <Button
-                                                          size="icon"
-                                                          variant="ghost"
-                                                          onClick={() => {
-                                                            if (confirm(`Delete AP group "${group.name}"?`)) {
-                                                              deleteApGroupMutation.mutate(group._id);
-                                                            }
-                                                          }}
-                                                          data-testid={`button-delete-apgroup-${group._id}`}
-                                                        >
-                                                          <Trash2 className="h-4 w-4 text-muted-foreground" />
-                                                        </Button>
+                                                      {!isSystemGroup && (
+                                                        <>
+                                                          <Button
+                                                            size="icon"
+                                                            variant="ghost"
+                                                            onClick={() => setEditApGroup({ id: group._id, name: group.name, deviceMacs: group.device_macs || [] })}
+                                                            data-testid={`button-edit-apgroup-${group._id}`}
+                                                          >
+                                                            <Pencil className="h-4 w-4 text-muted-foreground" />
+                                                          </Button>
+                                                          <Button
+                                                            size="icon"
+                                                            variant="ghost"
+                                                            onClick={() => {
+                                                              if (confirm(`Delete AP group "${group.name}"?`)) {
+                                                                deleteApGroupMutation.mutate(group._id);
+                                                              }
+                                                            }}
+                                                            data-testid={`button-delete-apgroup-${group._id}`}
+                                                          >
+                                                            <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                                          </Button>
+                                                        </>
                                                       )}
                                                     </div>
                                                   </TableCell>

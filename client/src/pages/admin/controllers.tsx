@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal, Radio, ArrowLeftRight, HardDrive, Download, AlertTriangle, Shield, Users, Info, WifiOff } from "lucide-react";
+import { Plus, Network, CheckCircle2, XCircle, RefreshCw, Trash2, Globe, Router, Eye, EyeOff, Pencil, Cpu, Clock, Wifi, Layers, Lock, Copy, ChevronRight, ChevronDown, Monitor, Signal, Radio, ArrowLeftRight, HardDrive, Download, AlertTriangle, Shield, Users, Info, WifiOff, Loader2, Zap } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1741,6 +1741,73 @@ function EditWifiDialog({ editWifi, setEditWifi, editWifiMutation, controllerId,
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (!bytes) return "0B";
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)}GB`;
+}
+
+function SwitchPortDiagram({ ports }: { ports: any[] }) {
+  const sorted = [...ports].sort((a, b) => (a.port_idx || 0) - (b.port_idx || 0));
+  if (sorted.length === 0) return <p className="text-xs text-muted-foreground p-2">No port data</p>;
+
+  return (
+    <div className="p-3">
+      <div className="flex flex-wrap gap-1.5">
+        {sorted.map((port) => {
+          const isUp = port.up === true;
+          const isUplink = port.is_uplink === true;
+          const speed = port.speed as number | undefined;
+          const hasPoe = port.poe_enable === true;
+
+          let bg = "bg-muted border-border";
+          if (isUp) {
+            if (isUplink) bg = "bg-blue-500 border-blue-600";
+            else if (speed && speed >= 10000) bg = "bg-emerald-500 border-emerald-600";
+            else if (speed && speed >= 1000) bg = "bg-green-500 border-green-600";
+            else bg = "bg-yellow-400 border-yellow-500";
+          }
+
+          const speedLabel = !speed || !isUp ? "" : speed >= 10000 ? "10G" : speed >= 2500 ? "2.5G" : speed >= 1000 ? "1G" : speed >= 100 ? "100M" : "10M";
+
+          return (
+            <TooltipProvider key={port.port_idx} delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className={`relative w-8 h-11 rounded border-2 ${bg} flex flex-col items-center justify-center cursor-default transition-transform hover:scale-110 select-none`} data-testid={`port-${port.port_idx}`}>
+                    <span className={`text-[9px] font-bold leading-none ${isUp ? "text-white" : "text-muted-foreground"}`}>{port.port_idx}</span>
+                    {isUp && speedLabel && <span className={`text-[7px] leading-none mt-0.5 ${isUp ? "text-white/80" : "text-muted-foreground"}`}>{speedLabel}</span>}
+                    {hasPoe && isUp && <Zap className="h-2 w-2 text-yellow-200 mt-0.5" />}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs space-y-0.5 p-2">
+                  <p className="font-semibold">{port.name || `Port ${port.port_idx}`}</p>
+                  <p>{isUp ? `Up · ${speedLabel}` : "Down / No link"}
+                    {isUplink ? " · Uplink" : ""}
+                    {port.full_duplex === true ? " · FDX" : ""}
+                  </p>
+                  {hasPoe && isUp && <p>PoE: {port.poe_power ? `${port.poe_power}W` : "on"}</p>}
+                  {isUp && (port.tx_bytes || port.rx_bytes) && (
+                    <p>TX {formatBytes(port.tx_bytes ?? 0)} · RX {formatBytes(port.rx_bytes ?? 0)}</p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-green-500 border border-green-600" />1G up</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-blue-500 border border-blue-600" />Uplink</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-yellow-400 border border-yellow-500" />&lt;1G</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-muted border border-border" />Down</span>
+      </div>
+    </div>
+  );
+}
+
 function EditDeviceDialog({ editDevice, setEditDevice, editDeviceMutation, controllerId, siteId }: any) {
   const [details, setDetails] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -1885,6 +1952,7 @@ export default function ControllersPage() {
   const [siteTab, setSiteTab] = useState<"networks" | "wifi" | "apgroups" | "devices">("networks");
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
+  const [expandedDevicePorts, setExpandedDevicePorts] = useState<Record<string, { loading: boolean; ports: any[] }>>({});
   const [addNetworkOpen, setAddNetworkOpen] = useState<{ controllerId: string; siteId: string } | null>(null);
   const [networkName, setNetworkName] = useState("");
   const [networkVlanId, setNetworkVlanId] = useState("");
@@ -2185,6 +2253,22 @@ export default function ControllersPage() {
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
+
+  const toggleDeviceExpand = async (devId: string) => {
+    if (expandedDevicePorts[devId]) {
+      setExpandedDevicePorts(prev => { const next = { ...prev }; delete next[devId]; return next; });
+      return;
+    }
+    setExpandedDevicePorts(prev => ({ ...prev, [devId]: { loading: true, ports: [] } }));
+    try {
+      const res = await fetch(`/api/devices/${devId}/details?controllerId=${expandedCtrlId}&siteId=${expandedSiteId || "default"}`, { credentials: "include" });
+      const data = await res.json();
+      const ports = data.unifi?.port_table || [];
+      setExpandedDevicePorts(prev => ({ ...prev, [devId]: { loading: false, ports } }));
+    } catch {
+      setExpandedDevicePorts(prev => ({ ...prev, [devId]: { loading: false, ports: [] } }));
+    }
+  };
 
   const createApGroupMutation = useMutation({
     mutationFn: async (data: { controllerId: string; siteId: string; name: string; deviceMacs: string[] }) => {
@@ -3836,7 +3920,8 @@ export default function ControllersPage() {
                                           </TableHeader>
                                           <TableBody>
                                             {importedDevices.map((dev) => (
-                                              <TableRow key={dev.id} data-testid={`row-device-${dev.id}`}>
+                                              <Fragment key={dev.id}>
+                                              <TableRow data-testid={`row-device-${dev.id}`}>
                                                 <TableCell>
                                                   <Checkbox
                                                     checked={selectedDeviceIds.includes(dev.id)}
@@ -3891,6 +3976,21 @@ export default function ControllersPage() {
                                                 <TableCell className="text-sm text-muted-foreground font-mono">{dev.macAddress}</TableCell>
                                                 <TableCell>
                                                   <div className="flex items-center gap-1">
+                                                    {(dev.deviceType === "switch" || dev.deviceType === "hybrid") && (
+                                                      <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => toggleDeviceExpand(dev.id)}
+                                                        data-testid={`button-ports-${dev.id}`}
+                                                        title="View port status"
+                                                      >
+                                                        {expandedDevicePorts[dev.id] ? (
+                                                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                                        ) : (
+                                                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                                        )}
+                                                      </Button>
+                                                    )}
                                                     <Button
                                                       size="icon"
                                                       variant="ghost"
@@ -3914,6 +4014,21 @@ export default function ControllersPage() {
                                                   </div>
                                                 </TableCell>
                                               </TableRow>
+                                              {expandedDevicePorts[dev.id] && (
+                                                <TableRow className="bg-muted/5 hover:bg-muted/5">
+                                                  <TableCell colSpan={6} className="py-0 px-4 pb-3">
+                                                    {expandedDevicePorts[dev.id].loading ? (
+                                                      <div className="flex items-center gap-2 p-3">
+                                                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                                        <span className="text-sm text-muted-foreground">Loading port status...</span>
+                                                      </div>
+                                                    ) : (
+                                                      <SwitchPortDiagram ports={expandedDevicePorts[dev.id].ports} />
+                                                    )}
+                                                  </TableCell>
+                                                </TableRow>
+                                              )}
+                                              </Fragment>
                                             ))}
                                           </TableBody>
                                         </Table>

@@ -3451,42 +3451,42 @@ export default function ControllersPage() {
                               </div>
                               {isSiteExpanded && (
                                 <div className="border-t">
-                                  <div className="flex border-b">
+                                  <div className="flex border-b bg-muted/30">
                                     <button
-                                      className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "networks" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                                      className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all ${siteTab === "networks" ? "border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-500/10" : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/60"}`}
                                       onClick={() => { setSiteTab("networks"); setSelectedNetworkIds([]); setSelectedWifiIds([]); setSelectedDeviceIds([]); }}
                                       data-testid={`button-tab-networks-${siteKey}`}
                                     >
                                       <Layers className="h-3.5 w-3.5" />
                                       Networks
-                                      {siteNetworks && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{siteNetworks.length}</Badge>}
+                                      {siteNetworks && <Badge variant="secondary" className={`ml-1 text-xs h-5 px-1.5 ${siteTab === "networks" ? "bg-blue-500/20 text-blue-700 dark:text-blue-300" : ""}`}>{siteNetworks.length}</Badge>}
                                     </button>
                                     <button
-                                      className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "wifi" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                                      className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all ${siteTab === "wifi" ? "border-violet-500 text-violet-600 dark:text-violet-400 bg-violet-500/10" : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/60"}`}
                                       onClick={() => { setSiteTab("wifi"); setSelectedNetworkIds([]); setSelectedWifiIds([]); setSelectedDeviceIds([]); }}
                                       data-testid={`button-tab-wifi-${siteKey}`}
                                     >
                                       <Wifi className="h-3.5 w-3.5" />
                                       WiFi
-                                      {wifiNetworks && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{wifiNetworks.length}</Badge>}
+                                      {wifiNetworks && <Badge variant="secondary" className={`ml-1 text-xs h-5 px-1.5 ${siteTab === "wifi" ? "bg-violet-500/20 text-violet-700 dark:text-violet-300" : ""}`}>{wifiNetworks.length}</Badge>}
                                     </button>
                                     <button
-                                      className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "apgroups" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                                      className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all ${siteTab === "apgroups" ? "border-amber-500 text-amber-600 dark:text-amber-400 bg-amber-500/10" : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/60"}`}
                                       onClick={() => { setSiteTab("apgroups"); setSelectedNetworkIds([]); setSelectedWifiIds([]); setSelectedDeviceIds([]); }}
                                       data-testid={`button-tab-apgroups-${siteKey}`}
                                     >
                                       <Users className="h-3.5 w-3.5" />
                                       AP Groups
-                                      {apGroups && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{apGroups.length}</Badge>}
+                                      {apGroups && <Badge variant="secondary" className={`ml-1 text-xs h-5 px-1.5 ${siteTab === "apgroups" ? "bg-amber-500/20 text-amber-700 dark:text-amber-300" : ""}`}>{apGroups.length}</Badge>}
                                     </button>
                                     <button
-                                      className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${siteTab === "devices" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                                      className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all ${siteTab === "devices" ? "border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10" : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/60"}`}
                                       onClick={() => { setSiteTab("devices"); setSelectedNetworkIds([]); setSelectedWifiIds([]); setSelectedDeviceIds([]); }}
                                       data-testid={`button-tab-devices-${siteKey}`}
                                     >
                                       <Monitor className="h-3.5 w-3.5" />
                                       Devices
-                                      {importedDevices && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{importedDevices.length}</Badge>}
+                                      {importedDevices && <Badge variant="secondary" className={`ml-1 text-xs h-5 px-1.5 ${siteTab === "devices" ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300" : ""}`}>{importedDevices.length}</Badge>}
                                     </button>
                                   </div>
 

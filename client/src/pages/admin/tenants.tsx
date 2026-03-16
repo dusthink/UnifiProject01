@@ -16,6 +16,87 @@ import type { Community, Building, Unit } from "@shared/schema";
 
 type UnitWithFloor = Unit & { floor?: number | null };
 
+function CascadeSelector({
+  community, setComm,
+  building, setBldg,
+  unit, setUnit,
+  communities,
+  communityBuildings,
+  buildingUnits,
+  testPrefix = "tenant",
+}: {
+  community: string; setComm: (v: string) => void;
+  building: string; setBldg: (v: string) => void;
+  unit: string; setUnit: (v: string) => void;
+  communities?: Community[];
+  communityBuildings?: Building[];
+  buildingUnits?: UnitWithFloor[];
+  testPrefix?: string;
+}) {
+  const selectedUnitObj = buildingUnits?.find((u) => u.id === unit);
+  return (
+    <>
+      <div className="space-y-2">
+        <Label>Community <span className="text-destructive">*</span></Label>
+        <Select value={community} onValueChange={(v) => { setComm(v); setBldg(""); setUnit(""); }}>
+          <SelectTrigger data-testid={`select-${testPrefix}-community`}>
+            <SelectValue placeholder="Select community" />
+          </SelectTrigger>
+          <SelectContent>
+            {communities?.map((c) => (
+              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {community && (
+        <div className="space-y-2">
+          <Label>Building <span className="text-destructive">*</span></Label>
+          <Select value={building} onValueChange={(v) => { setBldg(v); setUnit(""); }}>
+            <SelectTrigger data-testid={`select-${testPrefix}-building`}>
+              <SelectValue placeholder="Select building" />
+            </SelectTrigger>
+            <SelectContent>
+              {communityBuildings?.map((b) => (
+                <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {building && (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Unit <span className="text-destructive">*</span></Label>
+            <Select value={unit} onValueChange={setUnit}>
+              <SelectTrigger data-testid={`select-${testPrefix}-unit`}>
+                <SelectValue placeholder="Select unit" />
+              </SelectTrigger>
+              <SelectContent>
+                {buildingUnits?.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>{u.unitNumber}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Floor</Label>
+            <Input
+              readOnly
+              value={selectedUnitObj?.floor != null ? String(selectedUnitObj.floor) : ""}
+              placeholder="Auto-filled"
+              className="bg-muted/50 text-muted-foreground cursor-default"
+              data-testid={`input-${testPrefix}-floor`}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function TenantsPage() {
   const { toast } = useToast();
 
@@ -188,85 +269,6 @@ export default function TenantsPage() {
     setInviteUnit("");
   };
 
-  const CascadeSelector = ({
-    community, setComm,
-    building, setBldg,
-    unit, setUnit,
-    communityBuildings,
-    buildingUnits,
-    testPrefix = "tenant",
-  }: {
-    community: string; setComm: (v: string) => void;
-    building: string; setBldg: (v: string) => void;
-    unit: string; setUnit: (v: string) => void;
-    communityBuildings?: Building[];
-    buildingUnits?: UnitWithFloor[];
-    testPrefix?: string;
-  }) => {
-    const selectedUnitObj = buildingUnits?.find((u) => u.id === unit);
-    return (
-      <>
-        <div className="space-y-2">
-          <Label>Community <span className="text-destructive">*</span></Label>
-          <Select value={community} onValueChange={(v) => { setComm(v); setBldg(""); setUnit(""); }}>
-            <SelectTrigger data-testid={`select-${testPrefix}-community`}>
-              <SelectValue placeholder="Select community" />
-            </SelectTrigger>
-            <SelectContent>
-              {communities?.map((c) => (
-                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {community && (
-          <div className="space-y-2">
-            <Label>Building <span className="text-destructive">*</span></Label>
-            <Select value={building} onValueChange={(v) => { setBldg(v); setUnit(""); }}>
-              <SelectTrigger data-testid={`select-${testPrefix}-building`}>
-                <SelectValue placeholder="Select building" />
-              </SelectTrigger>
-              <SelectContent>
-                {communityBuildings?.map((b) => (
-                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {building && (
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Unit <span className="text-destructive">*</span></Label>
-              <Select value={unit} onValueChange={setUnit}>
-                <SelectTrigger data-testid={`select-${testPrefix}-unit`}>
-                  <SelectValue placeholder="Select unit" />
-                </SelectTrigger>
-                <SelectContent>
-                  {buildingUnits?.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{u.unitNumber}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Floor</Label>
-              <Input
-                readOnly
-                value={selectedUnitObj?.floor != null ? String(selectedUnitObj.floor) : ""}
-                placeholder="Auto-filled"
-                className="bg-muted/50 text-muted-foreground cursor-default"
-                data-testid={`input-${testPrefix}-floor`}
-              />
-            </div>
-          </div>
-        )}
-      </>
-    );
-  };
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -319,6 +321,7 @@ export default function TenantsPage() {
                     community={inviteCommunity} setComm={setInviteCommunity}
                     building={inviteBuilding} setBldg={setInviteBuilding}
                     unit={inviteUnit} setUnit={setInviteUnit}
+                    communities={communities}
                     communityBuildings={inviteBuildings}
                     buildingUnits={inviteUnits}
                     testPrefix="invite"

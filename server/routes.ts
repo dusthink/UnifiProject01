@@ -17,6 +17,7 @@ function generatePassword(length = 12): string {
 }
 
 function getBaseUrl(): string {
+  if (process.env.APP_URL) return process.env.APP_URL;
   if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
   if (process.env.REPLIT_DOMAINS) return `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`;
   return "http://localhost:5000";
